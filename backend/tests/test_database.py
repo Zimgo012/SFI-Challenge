@@ -161,4 +161,7 @@ class DatabaseConfigurationTests(unittest.TestCase):
 
     def test_blank_url_uses_separate_project_database(self):
         with patch.dict(os.environ, {'DISPATCHER_DATABASE_URL': ''}):
-            self.assertEqual(get_database_url(), f'sqlite:///{PROJECT_ROOT / "dispatcher.db"}')
+            self.assertEqual(
+                get_database_url(),
+                f'sqlite:///{PROJECT_ROOT / "data" / "dispatcher.db"}',
+            )
