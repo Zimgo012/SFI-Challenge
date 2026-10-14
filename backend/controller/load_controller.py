@@ -1,4 +1,5 @@
 from typing import Literal
+from uuid import UUID
 
 from fastapi import APIRouter, WebSocket
 
@@ -6,10 +7,12 @@ from controller.dependencies import Database, Limit, Offset
 from schema.api import ActionRequest, ActionResult, BidRequest, LoadDetail, LoadView, Page
 from schema.load_stream import StreamOrderStatus, StreamOrderType
 from schema.pickup_routing import PickupRouting
+from schema.recommendation import OrderRecommendations, RecommendationsPage
 from service import dashboard
 from service.actions import execute_action
 from service.load_stream import stream_loads
 from service.pickup_routing import pickup_routing
+from service.ranking import order_recommendations, recommendations
 
 router = APIRouter(prefix='/api/loads', tags=['Loads'])
 OrderType = Literal['fixed_rate', 'open_bid']
@@ -23,6 +26,20 @@ def loads(
     origin_terminal: str | None = None, include_missing: bool = False,
 ):
     return dashboard.list_loads(session, limit, offset, order_type, status, origin_terminal, include_missing=include_missing)
+
+
+@router.get('/recommendations', response_model=RecommendationsPage)
+def ranked_recommendations(
+    session: Database, limit: Limit = 50, offset: Offset = 0,
+    unit_id: UUID | None = None, order_type: OrderType | None = None,
+    origin_terminal: str | None = None, bookable_only: bool = False,
+):
+    return recommendations(session, limit, offset, unit_id, order_type, origin_terminal, bookable_only)
+
+
+@router.get('/{external_id}/recommendations', response_model=OrderRecommendations)
+def ranked_units(external_id: str, session: Database, unit_id: UUID | None = None):
+    return order_recommendations(session, external_id, unit_id)
 
 
 @router.websocket('/ws')
