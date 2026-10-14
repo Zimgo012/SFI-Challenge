@@ -14,12 +14,16 @@ def get_database_url() -> str:
     """Read the dispatcher URL without changing the process environment."""
     config = dotenv_values(PROJECT_ROOT / '.env')
     url = os.environ.get('DISPATCHER_DATABASE_URL', config.get('DISPATCHER_DATABASE_URL'))
-    return url or f'sqlite:///{PROJECT_ROOT / "dispatcher.db"}'
+    return url or f'sqlite:///{PROJECT_ROOT / "data" / "dispatcher.db"}'
 
 
 def create_database_engine(url: str) -> Engine:
     engine = create_engine(url, pool_pre_ping=True)
     if engine.dialect.name == 'sqlite':
+        database_path = engine.url.database
+        if database_path and database_path != ':memory:' and not database_path.startswith('file:'):
+            Path(database_path).parent.mkdir(parents=True, exist_ok=True)
+
         @event.listens_for(engine, 'connect')
         def enable_foreign_keys(connection, connection_record):
             cursor = connection.cursor()
