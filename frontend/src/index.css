@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+@keyframes load-panel-enter {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+.load-details-panel[open] {
+  animation: load-panel-enter 240ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .load-details-panel[open] { animation: none; }
+}
+
 @plugin "daisyui" {
   themes: false;
 }

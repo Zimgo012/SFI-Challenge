@@ -4,6 +4,7 @@ const id = encodeURIComponent
 export const endpoints = {
   loads: {
     list: '/api/loads',
+    webSocket: '/api/loads/ws',
     detail: (externalId: string) => `/api/loads/${id(externalId)}`,
     accept: (externalId: string) => `/api/loads/${id(externalId)}/accept`,
     decline: (externalId: string) => `/api/loads/${id(externalId)}/decline`,

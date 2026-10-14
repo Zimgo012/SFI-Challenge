@@ -2,7 +2,7 @@ import { Navigate, Route, Routes } from 'react-router'
 import AppLayout from './layouts/AppLayout'
 import DashboardPage from './pages/DashboardPage'
 import LoadBoardPage from './pages/LoadBoardPage'
-import BiddingPage from './pages/BiddingPage'
+import BidLogsPage from './pages/BidLogsPage'
 import TerminalsPage from './pages/TerminalsPage'
 import FleetPage from './pages/FleetPage'
 import ShipmentsPage from './pages/ShipmentsPage'
@@ -16,7 +16,7 @@ export default function App() {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="loads" element={<LoadBoardPage />} />
-        <Route path="bids" element={<BiddingPage />} />
+        <Route path="bids" element={<BidLogsPage />} />
         <Route path="terminals" element={<TerminalsPage />} />
         <Route path="fleet" element={<FleetPage />} />
         <Route path="shipments" element={<ShipmentsPage />} />

@@ -1,4 +1,5 @@
 import { apiFetch } from './client'
+import { env } from '../config/env'
 import { endpoints } from './endpoints'
 import { withQuery } from './request'
 import type { ActionRequest, BidRequest, PaginationParams } from './types'
@@ -11,6 +12,19 @@ export interface LoadParams extends PaginationParams {
   status?: LoadStatus | 'all'
   origin_terminal?: string
   include_missing?: boolean
+}
+
+export interface LoadStreamParams {
+  order_type?: OrderType | 'all'
+  status?: LoadStatus | 'all'
+  origin_terminal?: string
+}
+
+export function connectLoads(params: LoadStreamParams = {}): WebSocket {
+  const path = withQuery(endpoints.loads.webSocket, params)
+  const url = new URL(`${env.apiBaseUrl}${path}`, window.location.origin)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  return new WebSocket(url)
 }
 
 export async function getLoads(

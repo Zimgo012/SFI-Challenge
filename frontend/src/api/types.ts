@@ -280,3 +280,18 @@ export interface PaginationParams {
   limit?: number
   offset?: number
 }
+
+export interface LoadStreamMessage {
+  event: 'loads.snapshot' | 'loads.updated' | 'loads.heartbeat'
+  revision: number
+  sent_at: string
+  items: LoadView[]
+  system: SystemStatus
+}
+
+export interface LoadStreamError {
+  event: 'loads.error'
+  message: string
+}
+
+export type LoadStreamEvent = LoadStreamMessage | LoadStreamError
