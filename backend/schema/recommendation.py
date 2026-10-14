@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field, model_validator
 
 from schema.economics import ExpectedEconomics
+from schema.dispatch_policy import DispatchEvaluation
 
 
 class RankingPolicy(BaseModel):
@@ -50,6 +51,7 @@ class RankedMatch(BaseModel):
     utilization_after: Decimal
     score: Decimal
     booking_ready: bool
+    dispatch_rejection_reasons: list[str] = Field(default_factory=list)
 
 
 class RejectedUnit(BaseModel):
@@ -63,6 +65,7 @@ class OrderRecommendations(BaseModel):
     horizon_end: datetime
     policy: RankingPolicy
     entered_bid_rate: Decimal | None = None
+    dispatch_evaluation: DispatchEvaluation | None = None
     selected: RankedMatch | None = None
     ranked_units: list[RankedMatch] = Field(default_factory=list)
     rejected_units: list[RejectedUnit] = Field(default_factory=list)

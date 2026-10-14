@@ -22,7 +22,7 @@ from service.database import PROJECT_ROOT
 from service.errors import ProductError
 from service.expiration import seconds_remaining, simulated_now
 from service.ingest import ingest, persist_orders
-from service.pickup_routing import evaluate_pickup_routing
+from service.dispatch_policy import evaluate_dispatch, save_evaluation
 from service.reservations import release_resolved_reservations
 
 
@@ -47,6 +47,8 @@ def make_board_client(url: str) -> httpx.AsyncClient:
 
 
 def begin_action(engine: Engine, external_id: str, kind: str, request: ActionRequest):
+    denial = None
+    action_id = None
     try:
         with Session(engine) as session, session.begin():
             if engine.dialect.name != 'sqlite':
@@ -68,27 +70,41 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
                 raise ProductError(503, 'Simulation clock has not been synced yet')
             if seconds_remaining(shipment.expires_at, simulated_now(clock)) == 0:
                 raise ProductError(409, 'Order has expired')
+            evaluation = None
             if kind in ('accept', 'bid'):
-                routing = evaluate_pickup_routing(session, shipment)
-                if not routing.routing_passed:
-                    raise ProductError(409, 'Pickup routing rejected: ' + ', '.join(routing.rejection_reasons))
-            action = DispatchAction(
-                shipment_id=shipment.shipment_id, action_type=kind,
-                bid_rate=getattr(request, 'bid_rate', None), carrier_note=request.carrier_note,
-                request_status='submitting', requested_at=datetime.now(timezone.utc),
-            )
-            session.add(action)
-            session.flush()
-            if kind in ('accept', 'bid'):
-                session.add(AssignmentReservation(
-                    action_id=action.action_id, unit_id=routing.routing_candidate_unit_id,
-                    busy_from=shipment.pickup_at, busy_until=shipment.delivery_at,
-                    created_at=datetime.now(timezone.utc),
-                ))
+                checked = evaluate_dispatch(session, shipment, getattr(request, 'bid_rate', None))
+                evaluation = save_evaluation(session, shipment, checked)
+                if not checked.eligible:
+                    denial = ProductError(
+                        409, 'Dispatch rejected: ' + ', '.join(checked.rejection_reasons),
+                        evaluation=checked.model_dump(mode='json'),
+                    )
+                    add_activity(session, 'dispatch.rejected', denial.detail,
+                                 shipment_id=shipment.shipment_id,
+                                 details={'evaluation_id': str(evaluation.evaluation_id)})
+            if denial is None:
+                action = DispatchAction(
+                    shipment_id=shipment.shipment_id, action_type=kind,
+                    evaluation_id=evaluation.evaluation_id if evaluation else None,
+                    bid_rate=getattr(request, 'bid_rate', None), carrier_note=request.carrier_note,
+                    request_status='submitting', requested_at=datetime.now(timezone.utc),
+                )
+                session.add(action)
                 session.flush()
-            add_activity(session, 'action.requested', f'{kind} requested',
-                         shipment_id=shipment.shipment_id, action_id=action.action_id)
-            return action.action_id
+                if evaluation is not None:
+                    session.add(AssignmentReservation(
+                        action_id=action.action_id, unit_id=evaluation.candidate_unit_id,
+                        busy_from=shipment.pickup_at, busy_until=shipment.delivery_at,
+                        created_at=datetime.now(timezone.utc),
+                    ))
+                    session.flush()
+                add_activity(session, 'action.requested', f'{kind} requested',
+                             shipment_id=shipment.shipment_id, action_id=action.action_id)
+                action_id = action.action_id
+        # Raise after commit so rejected policy evaluations remain reviewable.
+        if denial is not None:
+            raise denial
+        return action_id
     except IntegrityError as exc:
         raise ProductError(409, 'An unresolved submission or conflicting unit reservation already exists') from exc
     except OperationalError as exc:

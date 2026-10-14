@@ -31,7 +31,10 @@ app.include_router(system_router)
 
 @app.exception_handler(ProductError)
 async def product_error(request: Request, exc: ProductError):
-    return JSONResponse(status_code=exc.status_code, content={'detail': exc.detail})
+    content = {'detail': exc.detail}
+    if exc.evaluation is not None:
+        content['evaluation'] = exc.evaluation
+    return JSONResponse(status_code=exc.status_code, content=content)
 
 
 if __name__ == '__main__':

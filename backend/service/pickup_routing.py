@@ -21,11 +21,13 @@ from service.scheduling import reservation_conflicts, schedule_conflicts, unit_s
 
 def routing_policy() -> PickupRoutingPolicy:
     config = dotenv_values(PROJECT_ROOT / '.env')
-    value = os.environ.get('MAX_PICKUP_MOVE_MILES', config.get('MAX_PICKUP_MOVE_MILES', '100'))
+    value = os.environ.get('MAX_DEADHEAD_MILES', os.environ.get(
+        'MAX_PICKUP_MOVE_MILES', config.get('MAX_DEADHEAD_MILES', config.get('MAX_PICKUP_MOVE_MILES', '100')),
+    ))
     try:
         return PickupRoutingPolicy(max_pickup_move_miles=value)
     except ValidationError as exc:
-        raise ProductError(503, 'MAX_PICKUP_MOVE_MILES must be a finite non-negative number') from exc
+        raise ProductError(503, 'MAX_DEADHEAD_MILES / MAX_PICKUP_MOVE_MILES must be a finite non-negative number') from exc
 
 
 def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouting:

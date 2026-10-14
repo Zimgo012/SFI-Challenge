@@ -18,6 +18,7 @@ from schema.simulation_clock import SimulationClock
 from schema.terminal import Terminal
 from service.database import PROJECT_ROOT
 from service.errors import ProductError
+from service.dispatch_policy import evaluate_dispatch
 from service.economics import expected_economics
 from service.expiration import simulated_now, utc
 from service.geography import nearest_terminal, pickup_distance_miles
@@ -116,6 +117,8 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
     if report.rejection_reasons:
         return report, []
     routing = evaluate_pickup_routing(session, shipment)
+    checked = evaluate_dispatch(session, shipment, context.bid_rate, context.unit_id, routing)
+    report.dispatch_evaluation = checked
     scored = []
     for item in routing.chaining_units:
         projection = item.projection
@@ -172,7 +175,8 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
             added_loaded_hours=((after - before) / Decimal('3600')).quantize(SIX_PLACES),
             utilization_before=(before / horizon).quantize(SIX_PLACES),
             utilization_after=utilization.quantize(SIX_PLACES), score=score.quantize(SIX_PLACES),
-            booking_ready=routing.routing_passed and routing.routing_candidate_unit_id == unit.unit_id,
+            booking_ready=checked.eligible and routing.routing_candidate_unit_id == unit.unit_id,
+            dispatch_rejection_reasons=checked.rejection_reasons if routing.routing_candidate_unit_id == unit.unit_id else ['unit_not_board_selectable'],
         )
         scored.append((score, miles, unit.employee_code, match))
     scored.sort(key=lambda row: (-row[0], row[1], shipment.external_id, row[2], row[3].board_unit_id))

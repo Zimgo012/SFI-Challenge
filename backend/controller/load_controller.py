@@ -10,6 +10,8 @@ from schema.load_stream import StreamOrderStatus, StreamOrderType
 from schema.pickup_routing import PickupRouting
 from schema.recommendation import OrderRecommendations, RecommendationsPage
 from schema.cost_preview import CostPreviewRequest
+from schema.dispatch_policy import DispatchEvaluation
+from service.dispatch_policy import dispatch_evaluation
 from service import dashboard
 from service.actions import execute_action
 from service.load_stream import stream_loads
@@ -50,6 +52,11 @@ def ranked_units(
 @router.post('/{external_id}/cost-preview', response_model=OrderRecommendations)
 def cost_preview(external_id: str, body: CostPreviewRequest, session: Database):
     return order_recommendations(session, external_id, body.unit_id, body.bid_rate)
+
+
+@router.post('/{external_id}/evaluate', response_model=DispatchEvaluation)
+def evaluate(external_id: str, body: CostPreviewRequest, session: Database):
+    return dispatch_evaluation(session, external_id, body.bid_rate, body.unit_id)
 
 
 @router.websocket('/ws')
