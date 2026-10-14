@@ -19,6 +19,7 @@ from schema.terminal import Terminal
 from service.database import PROJECT_ROOT
 from service.errors import ProductError
 from service.dispatch_policy import evaluate_dispatch
+from service.dispatch_feedback import rejection_detail
 from service.economics import expected_economics
 from service.expiration import simulated_now, utc
 from service.geography import nearest_terminal, pickup_distance_miles
@@ -177,6 +178,9 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
             utilization_after=utilization.quantize(SIX_PLACES), score=score.quantize(SIX_PLACES),
             booking_ready=checked.eligible and routing.routing_candidate_unit_id == unit.unit_id,
             dispatch_rejection_reasons=checked.rejection_reasons if routing.routing_candidate_unit_id == unit.unit_id else ['unit_not_board_selectable'],
+            dispatch_rejection_details=checked.rejection_details if routing.routing_candidate_unit_id == unit.unit_id else [
+                rejection_detail('unit_not_board_selectable', 'location_passed', {'unit_id': unit.unit_id}),
+            ],
         )
         scored.append((score, miles, unit.employee_code, match))
     scored.sort(key=lambda row: (-row[0], row[1], shipment.external_id, row[2], row[3].board_unit_id))

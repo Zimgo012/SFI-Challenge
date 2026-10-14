@@ -16,6 +16,7 @@ from schema.shipment import Shipment
 from schema.simulation_clock import SimulationClock
 from service.database import PROJECT_ROOT
 from service.economics import expected_economics
+from service.dispatch_feedback import add_feedback
 from service.errors import ProductError
 from service.expiration import simulated_now, utc
 from service.geography import pickup_distance_miles, valid_coordinates
@@ -74,10 +75,13 @@ def evaluate_dispatch(session: Session, shipment: Shipment, bid_rate=None, unit_
         economics=expected_economics(shipment, miles, bid_rate), deadhead_miles=miles, projection=projection,
     )
 
+    reason_checks = {}
+
     def fail(check, reason):
         result.checks[check] = False
         if reason not in result.rejection_reasons:
             result.rejection_reasons.append(reason)
+            reason_checks[reason] = check
 
     if shipment.board_missing_at is not None:
         fail('offer_open_unexpired', 'order_missing_from_board')
@@ -168,7 +172,7 @@ def evaluate_dispatch(session: Session, shipment: Shipment, bid_rate=None, unit_
     if capacity is None or capacity.board_total_units is None:
         fail('capacity_passed', 'terminal_capacity_unknown')
     else:
-        result.capacity_warnings = list(capacity.discrepancies)
+        result.capacity_warnings = [dict(issue) for issue in capacity.discrepancies]
         if any(issue.get('kind') in ('roster_terminal_mismatch', 'terminal_missing_from_snapshot')
                for issue in capacity.discrepancies):
             fail('capacity_passed', 'terminal_capacity_discrepancy')
@@ -191,6 +195,7 @@ def evaluate_dispatch(session: Session, shipment: Shipment, bid_rate=None, unit_
                 'local_roster_total': len(units), 'board_available': capacity.board_available_units,
                 'roster_available': free, 'board_assigned': capacity.board_assigned_units, 'roster_assigned': assigned,
             })
+    add_feedback(result, shipment, routing, capacity, unit, reason_checks)
     result.eligible = all(result.checks.values())
     return result
 

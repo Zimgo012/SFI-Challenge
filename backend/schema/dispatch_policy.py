@@ -19,6 +19,14 @@ class DispatchPolicy(BaseModel):
     max_fleet_snapshot_age_seconds: int = Field(default=120, gt=0)
 
 
+class DispatchRejection(BaseModel):
+    code: str
+    check: str
+    message: str
+    suggested_action: str
+    context: dict = Field(default_factory=dict)
+
+
 class DispatchEvaluation(BaseModel):
     external_id: str
     candidate_unit_id: UUID | None
@@ -27,6 +35,7 @@ class DispatchEvaluation(BaseModel):
     eligible: bool = False
     checks: dict[str, bool]
     rejection_reasons: list[str] = Field(default_factory=list)
+    rejection_details: list[DispatchRejection] = Field(default_factory=list)
     capacity_warnings: list[dict] = Field(default_factory=list)
     capacity_units_for_window: int = 0
     economics: ExpectedEconomics

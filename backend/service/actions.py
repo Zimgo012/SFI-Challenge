@@ -59,16 +59,16 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
             shipment = session.scalar(select(Shipment).where(Shipment.external_id == external_id))
             if shipment is None:
                 raise ProductError(404, 'Order not found')
-            if shipment.board_missing_at is not None:
+            if kind == 'decline' and shipment.board_missing_at is not None:
                 raise ProductError(409, 'Order is no longer present on the board')
-            if shipment.status != 'open':
+            if kind == 'decline' and shipment.status != 'open':
                 raise ProductError(409, f'Order is {shipment.status}, not open')
             if (kind == 'accept' and shipment.order_type != 'fixed_rate') or (kind == 'bid' and shipment.order_type != 'open_bid'):
                 raise ProductError(409, 'Action does not match the order type')
             clock = session.get(SimulationClock, 1)
             if clock is None:
                 raise ProductError(503, 'Simulation clock has not been synced yet')
-            if seconds_remaining(shipment.expires_at, simulated_now(clock)) == 0:
+            if kind == 'decline' and seconds_remaining(shipment.expires_at, simulated_now(clock)) == 0:
                 raise ProductError(409, 'Order has expired')
             evaluation = None
             if kind in ('accept', 'bid'):
@@ -76,7 +76,9 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
                 evaluation = save_evaluation(session, shipment, checked)
                 if not checked.eligible:
                     denial = ProductError(
-                        409, 'Dispatch rejected: ' + ', '.join(checked.rejection_reasons),
+                        409, 'Dispatch rejected: ' + '; '.join(
+                            f'{item.message} ({item.code})' for item in checked.rejection_details
+                        ),
                         evaluation=checked.model_dump(mode='json'),
                     )
                     add_activity(session, 'dispatch.rejected', denial.detail,
