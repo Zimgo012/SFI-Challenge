@@ -12,6 +12,7 @@ from schema.pickup_routing import PickupRouting, PickupRoutingPolicy, PickupUnit
 from schema.shipment import Shipment
 from schema.terminal import Terminal
 from service.database import PROJECT_ROOT
+from service.chaining import chaining_candidates
 from service.errors import ProductError
 from service.expiration import utc
 from service.geography import nearest_terminal, pickup_distance_miles, valid_coordinates
@@ -68,10 +69,14 @@ def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouti
     if utc(shipment.delivery_at) <= utc(shipment.pickup_at):
         result.rejection_reasons.append('invalid_pickup_delivery_window')
         return result
-    units = session.scalars(select(FleetUnit).where(
-        FleetUnit.home_terminal_id == terminal.terminal_id,
+    all_units = session.scalars(select(FleetUnit).where(
         FleetUnit.board_missing_at.is_(None),
     ).order_by(FleetUnit.employee_code, FleetUnit.board_unit_id)).all()
+    result.chaining_units, result.chaining_candidate_unit_id = chaining_candidates(
+        session, all_units, shipment, terminal, result.policy.max_pickup_move_miles,
+    )
+    result.chaining_passed = result.chaining_candidate_unit_id is not None
+    units = [unit for unit in all_units if unit.home_terminal_id == terminal.terminal_id]
     conflicts = schedule_conflicts(
         session, [unit.unit_id for unit in units], shipment.pickup_at, shipment.delivery_at,
     )
@@ -118,6 +123,8 @@ def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouti
     available_units = [unit for unit in result.units if unit.available_at_pickup]
     if not available_units:
         result.rejection_reasons.append('no_available_units_at_pickup_terminal')
+        if result.chaining_passed:
+            result.rejection_reasons.append('future_terminal_not_yet_board_selectable')
     elif any(unit.distance_miles is None for unit in available_units):
         # The board chooses the unit; unknown positions prevent verification.
         result.rejection_reasons.append('available_unit_coordinates_unknown_or_invalid')
@@ -133,6 +140,9 @@ def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouti
                 'unit_availability_unknown', 'assignment_window_overlap',
                 'assignment_window_reserved',
             ))
+        projected = next(item for item in result.chaining_units if item.projection.unit_id == candidate.unit_id)
+        if any(delivery.delivery_at <= result.pickup_at for delivery in projected.projection.deliveries):
+            result.rejection_reasons.extend(reason for reason in projected.rejection_reasons if reason not in result.rejection_reasons)
         if not candidate.within_move_limit:
             result.rejection_reasons.append('pickup_move_exceeds_limit')
     result.routing_passed = not result.rejection_reasons

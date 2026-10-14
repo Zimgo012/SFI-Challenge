@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from schema.scheduling import ReservationConflict, ScheduleConflict
+from schema.unit_projection import ChainingUnit
 
 
 class PickupRoutingPolicy(BaseModel):
@@ -38,5 +39,8 @@ class PickupRouting(BaseModel):
     policy: PickupRoutingPolicy
     routing_passed: bool = False
     schedule_passed: bool = False
+    chaining_passed: bool = False
+    chaining_candidate_unit_id: UUID | None = None
+    chaining_units: list[ChainingUnit] = Field(default_factory=list)
     rejection_reasons: list[str] = Field(default_factory=list)
     units: list[PickupUnitRoute] = Field(default_factory=list)

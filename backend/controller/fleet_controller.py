@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter
@@ -5,8 +6,10 @@ from fastapi import APIRouter
 from controller.dependencies import Database, Limit, Offset
 from schema.api import Page, UnitDetail, UnitView
 from schema.fleet_capacity_response import FleetCapacityResponse
+from schema.unit_projection import UnitProjection
 from service import dashboard
 from service.fleet import capacity_reports
+from service.unit_projection import fleet_projections, unit_projection
 
 router = APIRouter(prefix='/api/fleet', tags=['Fleet'])
 
@@ -29,6 +32,16 @@ def units(
 @router.get('/units/{unit_id}', response_model=UnitDetail)
 def unit(unit_id: UUID, session: Database):
     return dashboard.unit_detail(session, unit_id)
+
+
+@router.get('/projections', response_model=list[UnitProjection])
+def projections(session: Database, at: datetime | None = None):
+    return fleet_projections(session, at)
+
+
+@router.get('/units/{unit_id}/projection', response_model=UnitProjection)
+def projected_unit(unit_id: UUID, session: Database, at: datetime | None = None):
+    return unit_projection(session, unit_id, at)
 
 
 legacy_router = APIRouter(prefix='/fleet', tags=['Fleet'])
