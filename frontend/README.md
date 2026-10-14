@@ -47,7 +47,14 @@ links and refreshes work with browser routing.
 
 Tailwind CSS runs through the `@tailwindcss/vite` plugin in `vite.config.ts`.
 `src/index.css` imports Tailwind and registers daisyUI with light and dark
-themes, following the system color preference. Use Tailwind utility classes
+themes, initially following the system color preference. The header button
+switches between light and dark mode and remembers your choice in localStorage.
+The saved theme is applied before rendering to avoid a flash on reload.
+Light mode uses white and pale
+blue surfaces with royal-blue accents; dark mode uses navy surfaces with
+bright-blue accents. Theme tokens live in `src/index.css` and use the
+[daisyUI custom theme format](https://daisyui.com/docs/themes/).
+Use Tailwind utility classes
 and daisyUI component classes directly in JSX.
 
 Official setup references: [Tailwind CSS](https://tailwindcss.com/docs/installation/using-vite/)
