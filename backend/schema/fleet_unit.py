@@ -28,3 +28,4 @@ class FleetUnit(Base):
     current_longitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
     available_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    board_missing_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

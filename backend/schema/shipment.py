@@ -67,3 +67,4 @@ class Shipment(Base):
     board_assigned_unit_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     assigned_terminal_code: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    board_missing_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

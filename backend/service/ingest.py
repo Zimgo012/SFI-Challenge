@@ -5,7 +5,7 @@ from decimal import Decimal
 
 import httpx
 from pydantic import TypeAdapter
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, func, select, update
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -14,6 +14,8 @@ from schema.board_api import BoardClock, BoardFleetSnapshot, BoardOrder, BoardTe
 from schema.dispatcher import FleetUnit, Shipment, SimulationClock, Terminal
 from service.database import get_engine
 from service.expiration import expire_due_offers
+from service.reconciliation import reconcile_known_orders
+from service.fleet import log_discrepancies, reconcile_fleet, validate_roster
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,7 @@ def upsert_orders(
         values = order.model_dump(
             exclude={'id', 'created_at', 'assigned_driver_id'}, exclude_unset=True,
         )
-        values.update(board_order_id=order.id, last_synced_at=synced_at)
+        values.update(board_order_id=order.id, last_synced_at=synced_at, board_missing_at=None)
         if 'created_at' in order.model_fields_set:
             values['board_created_at'] = order.created_at
         if 'assigned_driver_id' in order.model_fields_set:
@@ -87,7 +89,9 @@ def persist_snapshot(
     clock: BoardClock,
     orders: list[BoardOrder],
     *, clock_received_at: datetime | None = None,
+    missing_order_ids: set[str] | None = None,
 ) -> None:
+    validate_roster(fleet)
     synced_at = datetime.now(timezone.utc)
     with Session(engine) as session, session.begin():
         # Include roster terminals in case a terminal was added between API reads.
@@ -113,10 +117,17 @@ def persist_snapshot(
                     board_unit_id=unit.id,
                     home_terminal_id=terminal_id,
                     last_synced_at=synced_at,
+                    board_missing_at=None,
                 )
                 upsert(session, FleetUnit, 'board_unit_id', values)
 
         upsert_orders(session, orders, synced_at)
+        if missing_order_ids:
+            session.execute(
+                update(Shipment)
+                .where(Shipment.external_id.in_(missing_order_ids))
+                .values(board_missing_at=func.coalesce(Shipment.board_missing_at, synced_at))
+            )
 
         upsert(session, SimulationClock, 'clock_id', {
             'clock_id': 1,
@@ -124,6 +135,8 @@ def persist_snapshot(
             'last_synced_at': clock_received_at or synced_at,
         })
         expire_due_offers(session)
+        capacity = reconcile_fleet(session, fleet, clock.sim_time_utc, synced_at)
+    log_discrepancies(capacity)
 
 
 async def ingest(
@@ -134,6 +147,7 @@ async def ingest(
 ) -> list[BoardOrder]:
     """Fetch and validate board state, then atomically upsert it locally."""
     clock_received_at = None
+    engine = engine if engine is not None else get_engine()
     async with httpx.AsyncClient(
         base_url=external_api_url.rstrip('/') + '/', timeout=20.0, transport=transport,
     ) as client:
@@ -145,22 +159,33 @@ async def ingest(
                 clock_received_at = datetime.now(timezone.utc)
             return response.json(parse_float=Decimal)
 
-        terminals_data, fleet_data, clock_data, orders_data = await asyncio.gather(
-            fetch('terminals'), fetch('fleet/snapshot'), fetch('simulation/clock'),
-            fetch('orders?status=all'),
+        terminals_data, orders_data = await asyncio.gather(
+            fetch('terminals'), fetch('orders?status=all'),
+        )
+        orders = TypeAdapter(list[BoardOrder]).validate_python(orders_data)
+        orders, missing_order_ids = await reconcile_known_orders(client, engine, orders)
+        # Order reads can advance delivery lifecycle on the board. Refresh the
+        # roster afterwards so position, availability, and re-homing are current.
+        fleet_data, clock_data = await asyncio.gather(
+            fetch('fleet/snapshot'), fetch('simulation/clock'),
         )
 
     terminals = TypeAdapter(list[BoardTerminal]).validate_python(terminals_data)
     fleet = TypeAdapter(list[BoardFleetSnapshot]).validate_python(fleet_data)
     clock = BoardClock.model_validate(clock_data)
-    orders = TypeAdapter(list[BoardOrder]).validate_python(orders_data)
     await asyncio.to_thread(
-        persist_snapshot, engine if engine is not None else get_engine(),
+        persist_snapshot, engine,
         terminals, fleet, clock, orders, clock_received_at=clock_received_at,
+        missing_order_ids=missing_order_ids,
     )
     logger.info(
         'Board sync complete: %d terminals, %d units, %d orders; simulated time %s',
         len(terminals), sum(len(snapshot.units) for snapshot in fleet), len(orders),
         clock.sim_time_utc.isoformat(),
     )
+    if missing_order_ids:
+        logger.warning(
+            '%d locally retained orders are absent from the board; history preserved',
+            len(missing_order_ids),
+        )
     return orders

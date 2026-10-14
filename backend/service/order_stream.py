@@ -62,6 +62,12 @@ async def handle_event(message: str | bytes, base_url: str) -> None:
             created_only=event.event == 'order.created',
         )
         log_orders(event.event, orders)
+        if event.event == 'order.created' or any(
+            order.status in ('accepted', 'in_transit', 'completed') for order in orders
+        ):
+            # New arrivals also serve as reconciliation checkpoints if a
+            # lifecycle message was missed while the socket stayed connected.
+            await ingest(base_url)
         return
     logger.warning('Ignoring unsupported board event: %s', event.event)
 

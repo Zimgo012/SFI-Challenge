@@ -43,7 +43,10 @@ def expire_due_offers(session: Session, wall_now: datetime | None = None) -> lis
         return []
     statement = (
         update(Shipment)
-        .where(Shipment.status == 'open', Shipment.expires_at <= simulated_now(clock, wall_now))
+        .where(
+            Shipment.status == 'open', Shipment.board_missing_at.is_(None),
+            Shipment.expires_at <= simulated_now(clock, wall_now),
+        )
         .values(status='expired')
         .returning(Shipment.external_id)
         .execution_options(synchronize_session=False)
@@ -68,12 +71,15 @@ def get_order_expiration(session: Session, external_id: str) -> OrderExpiration:
     remaining = seconds_remaining(shipment.expires_at, sim_time)
     # Reads derive the current countdown even between background task ticks.
     status = shipment.status
-    if status == 'open' and remaining == 0:
+    if status == 'open' and remaining == 0 and shipment.board_missing_at is None:
         status = 'expired'
     return OrderExpiration(
         external_id=shipment.external_id, status=status,
         expires_at=utc(shipment.expires_at) if shipment.expires_at is not None else None,
-        seconds_remaining=remaining if status == 'open' else 0,
+        seconds_remaining=(
+            None if shipment.board_missing_at is not None else remaining if status == 'open' else 0
+        ),
+        board_missing_at=utc(shipment.board_missing_at) if shipment.board_missing_at is not None else None,
         sim_time_utc=sim_time,
     )
 
