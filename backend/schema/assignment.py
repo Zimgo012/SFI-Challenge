@@ -1,14 +1,26 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Text, Uuid
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Text, Uuid, text
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from schema.base import Base
+
+ACTIVE_ASSIGNMENT_STATUSES = ('confirmed', 'accepted', 'in_transit', 'active')
+ACTIVE_ASSIGNMENT_SQL = "assignment_status IN ('confirmed', 'accepted', 'in_transit', 'active')"
 
 
 class Assignment(Base):
     __tablename__ = 'assignments'
+    __table_args__ = (
+        CheckConstraint('busy_until > busy_from', name='positive_interval'),
+        CheckConstraint(
+            "assignment_status IN ('confirmed', 'accepted', 'in_transit', 'active', 'completed', 'cancelled')",
+            name='valid_status',
+        ),
+        Index('uq_assignments_active_shipment', 'shipment_id', unique=True,
+              sqlite_where=text(ACTIVE_ASSIGNMENT_SQL)),
+    )
 
     assignment_id: Mapped[UUID] = mapped_column(
         Uuid,
@@ -20,7 +32,6 @@ class Assignment(Base):
         Uuid,
         ForeignKey('shipments.shipment_id'),
         index=True,
-        unique=True,
         nullable=False,
     )
     unit_id: Mapped[UUID] = mapped_column(
@@ -46,3 +57,9 @@ class Assignment(Base):
     assignment_status: Mapped[str] = mapped_column(Text, nullable=False)
     confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    @validates('busy_from', 'busy_until', 'confirmed_at', 'completed_at', 'cancelled_at')
+    def normalize_timestamp(self, key, value):
+        from service.expiration import utc
+        return utc(value) if value is not None else None

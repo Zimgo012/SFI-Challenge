@@ -5,9 +5,11 @@ from fastapi import APIRouter, WebSocket
 from controller.dependencies import Database, Limit, Offset
 from schema.api import ActionRequest, ActionResult, BidRequest, LoadDetail, LoadView, Page
 from schema.load_stream import StreamOrderStatus, StreamOrderType
+from schema.pickup_routing import PickupRouting
 from service import dashboard
 from service.actions import execute_action
 from service.load_stream import stream_loads
+from service.pickup_routing import pickup_routing
 
 router = APIRouter(prefix='/api/loads', tags=['Loads'])
 OrderType = Literal['fixed_rate', 'open_bid']
@@ -33,6 +35,11 @@ async def subscribe_loads(
         websocket, session.get_bind(), order_type=order_type,
         status=status, origin_terminal=origin_terminal,
     )
+
+
+@router.get('/{external_id}/routing', response_model=PickupRouting)
+def load_pickup_routing(external_id: str, session: Database):
+    return pickup_routing(session, external_id)
 
 
 @router.get('/{external_id}', response_model=LoadDetail)

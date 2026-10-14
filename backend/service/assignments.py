@@ -1,4 +1,3 @@
-import math
 from datetime import datetime, timezone
 
 from sqlalchemy import select
@@ -12,20 +11,9 @@ from schema.fleet_unit import FleetUnit
 from schema.shipment import Shipment
 from schema.terminal import Terminal
 from service.activity import add_activity
+from service.geography import nearest_terminal
 
 CONFIRMED_STATUSES = ('accepted', 'in_transit', 'completed')
-
-
-def nearest_terminal(terminals: list[Terminal], latitude, longitude):
-    if latitude is None or longitude is None:
-        return None
-    def distance(terminal):
-        lat1, lat2 = math.radians(float(latitude)), math.radians(float(terminal.latitude))
-        delta_lat = lat2 - lat1
-        delta_lon = math.radians(float(terminal.longitude) - float(longitude))
-        return math.sin(delta_lat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2) ** 2
-    candidates = [terminal for terminal in terminals if terminal.latitude is not None and terminal.longitude is not None]
-    return min(candidates, key=distance) if candidates else None
 
 
 def reconcile_bookings(session: Session, sim_time: datetime) -> None:

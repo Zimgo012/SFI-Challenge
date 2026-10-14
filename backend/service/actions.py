@@ -21,6 +21,7 @@ from service.database import PROJECT_ROOT
 from service.errors import ProductError
 from service.expiration import seconds_remaining, simulated_now
 from service.ingest import ingest, persist_orders
+from service.pickup_routing import evaluate_pickup_routing
 
 
 def board_url() -> str:
@@ -60,6 +61,10 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
                 raise ProductError(503, 'Simulation clock has not been synced yet')
             if seconds_remaining(shipment.expires_at, simulated_now(clock)) == 0:
                 raise ProductError(409, 'Order has expired')
+            if kind in ('accept', 'bid'):
+                routing = evaluate_pickup_routing(session, shipment)
+                if not routing.routing_passed:
+                    raise ProductError(409, 'Pickup routing rejected: ' + ', '.join(routing.rejection_reasons))
             action = DispatchAction(
                 shipment_id=shipment.shipment_id, action_type=kind,
                 bid_rate=getattr(request, 'bid_rate', None), carrier_note=request.carrier_note,

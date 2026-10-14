@@ -38,6 +38,7 @@ class AssignmentView(View):
     assignment_status: str
     confirmed_at: datetime
     completed_at: datetime | None
+    cancelled_at: datetime | None = None
 
 class ActionView(View):
     action_id: UUID
@@ -132,6 +133,10 @@ class UnitView(View):
     last_synced_at: datetime | None
     board_missing_at: datetime | None
     terminal_code: str | None = None
+    current_terminal_id: UUID | None = None
+    current_terminal_code: str | None = None
+    next_terminal_id: UUID | None = None
+    next_terminal_code: str | None = None
 
 class TerminalView(View):
     terminal_id: UUID
@@ -162,6 +167,7 @@ class LoadDetail(LoadView):
     actions: list[ActionView]
     actual_assignment: AssignmentView | None
     latest_evaluation: EvaluationView | None
+    assignment_history: list[AssignmentView] = Field(default_factory=list)
 
 
 class UnitDetail(UnitView):
