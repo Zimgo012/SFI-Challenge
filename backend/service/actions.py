@@ -7,12 +7,13 @@ from urllib.parse import quote, urlsplit
 import httpx
 from dotenv import dotenv_values
 from pydantic import ValidationError
-from sqlalchemy import Engine, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import Engine, select, text
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from schema.api import ActionRequest, ActionResult, ActionView, BoardActionResponse
 from schema.dispatch_action import DispatchAction
+from schema.assignment_reservation import AssignmentReservation
 from schema.shipment import Shipment
 from schema.simulation_clock import SimulationClock
 from service.activity import add_activity, record_system_event
@@ -22,6 +23,7 @@ from service.errors import ProductError
 from service.expiration import seconds_remaining, simulated_now
 from service.ingest import ingest, persist_orders
 from service.pickup_routing import evaluate_pickup_routing
+from service.reservations import release_resolved_reservations
 
 
 def board_url() -> str:
@@ -47,6 +49,11 @@ def make_board_client(url: str) -> httpx.AsyncClient:
 def begin_action(engine: Engine, external_id: str, kind: str, request: ActionRequest):
     try:
         with Session(engine) as session, session.begin():
+            if engine.dialect.name != 'sqlite':
+                raise ProductError(503, 'Atomic dispatcher reservations require SQLite')
+            # Acquire the database write lock before reading schedules. Commit
+            # the reservation before HTTP; no database lock spans network I/O.
+            session.execute(text('BEGIN IMMEDIATE'))
             shipment = session.scalar(select(Shipment).where(Shipment.external_id == external_id))
             if shipment is None:
                 raise ProductError(404, 'Order not found')
@@ -72,18 +79,30 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
             )
             session.add(action)
             session.flush()
+            if kind in ('accept', 'bid'):
+                session.add(AssignmentReservation(
+                    action_id=action.action_id, unit_id=routing.routing_candidate_unit_id,
+                    busy_from=shipment.pickup_at, busy_until=shipment.delivery_at,
+                    created_at=datetime.now(timezone.utc),
+                ))
+                session.flush()
             add_activity(session, 'action.requested', f'{kind} requested',
                          shipment_id=shipment.shipment_id, action_id=action.action_id)
             return action.action_id
     except IntegrityError as exc:
-        raise ProductError(409, 'An unresolved submission already exists for this order') from exc
+        raise ProductError(409, 'An unresolved submission or conflicting unit reservation already exists') from exc
+    except OperationalError as exc:
+        if engine.dialect.name == 'sqlite' and (getattr(exc.orig, 'sqlite_errorcode', 0) & 255) in (5, 6):
+            raise ProductError(503, 'Dispatcher database is busy; retry before submitting') from exc
+        raise
 
 
 def finish_action(engine, action_id, status, message, board_http_status=None):
     with Session(engine) as session, session.begin():
         action = session.get(DispatchAction, action_id)
         # A concurrent board sync may already have established the outcome.
-        if action.request_status == 'succeeded' and status == 'unknown':
+        if action.request_status == 'succeeded' and status != 'succeeded':
+            release_resolved_reservations(session)
             return
         action.request_status = status
         action.board_message = message
@@ -92,13 +111,15 @@ def finish_action(engine, action_id, status, message, board_http_status=None):
         add_activity(session, f'action.{status}', message,
                      shipment_id=action.shipment_id, action_id=action_id,
                      details={'board_http_status': board_http_status})
+        release_resolved_reservations(session)
 
 
 def result(engine, external_id, action_id, sync_pending):
     with Session(engine) as session:
         return ActionResult(
             action=ActionView.model_validate(session.get(DispatchAction, action_id)),
-            order=load_detail(session, external_id), sync_pending=sync_pending,
+            order=load_detail(session, external_id),
+            sync_pending=sync_pending or session.get(AssignmentReservation, action_id) is not None,
         )
 
 

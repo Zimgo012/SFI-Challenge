@@ -7,6 +7,7 @@ from schema.shipment import Shipment
 from schema.evaluation import Evaluation
 from schema.dispatch_action import DispatchAction
 from schema.assignment import Assignment
+from schema.assignment_reservation import AssignmentReservation
 from schema.historical_shipment import HistoricalShipment
 from schema.simulation_clock import SimulationClock
 from schema.fleet_capacity import FleetCapacity
@@ -20,6 +21,7 @@ __all__ = [
     'Evaluation',
     'DispatchAction',
     'Assignment',
+    'AssignmentReservation',
     'HistoricalShipment',
     'SimulationClock',
     'FleetCapacity',

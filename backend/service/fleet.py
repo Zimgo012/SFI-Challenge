@@ -5,6 +5,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from schema.assignment import ACTIVE_ASSIGNMENT_STATUSES, Assignment
+from schema.assignment_reservation import AssignmentReservation
 from schema.board_api import BoardFleetSnapshot
 from schema.fleet_capacity import FleetCapacity
 from schema.fleet_capacity_response import CapacityCounts, FleetCapacityResponse
@@ -53,6 +54,9 @@ def reconcile_fleet(
             Assignment.busy_from <= sim_time, Assignment.busy_until > sim_time,
         ),
     ))
+    busy_units.update(session.scalars(select(AssignmentReservation.unit_id).where(
+        AssignmentReservation.busy_from <= sim_time, AssignmentReservation.busy_until > sim_time,
+    )))
     terminals = session.scalars(select(Terminal).order_by(Terminal.code)).all()
     units = session.scalars(select(FleetUnit).execution_options(populate_existing=True)).all()
     board = {snapshot.terminal.id: snapshot for snapshot in snapshots}

@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from schema.scheduling import ScheduleConflict
+from schema.scheduling import ReservationConflict, ScheduleConflict
 
 
 class PickupRoutingPolicy(BaseModel):
@@ -23,6 +23,7 @@ class PickupUnitRoute(BaseModel):
     schedule_passed: bool
     eligible: bool
     conflicting_assignments: list[ScheduleConflict] = Field(default_factory=list)
+    conflicting_reservations: list[ReservationConflict] = Field(default_factory=list)
     rejection_reasons: list[str]
 
 

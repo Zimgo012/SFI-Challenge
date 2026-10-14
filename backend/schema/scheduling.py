@@ -10,3 +10,10 @@ class ScheduleConflict(BaseModel):
     busy_from: datetime
     busy_until: datetime
     assignment_status: str
+
+
+class ReservationConflict(BaseModel):
+    action_id: UUID
+    busy_from: datetime
+    busy_until: datetime
+    request_status: str

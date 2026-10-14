@@ -12,6 +12,7 @@ from schema.shipment import Shipment
 from schema.terminal import Terminal
 from service.activity import add_activity
 from service.geography import nearest_terminal
+from service.reservations import release_resolved_reservations
 
 CONFIRMED_STATUSES = ('accepted', 'in_transit', 'completed')
 
@@ -120,3 +121,4 @@ def reconcile_bookings(session: Session, sim_time: datetime) -> None:
                 add_activity(session, 'action.reconciled', action.board_message,
                              shipment_id=shipment.shipment_id, action_id=action.action_id)
     session.flush()
+    release_resolved_reservations(session)

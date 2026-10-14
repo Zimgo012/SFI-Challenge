@@ -15,7 +15,7 @@ from service.database import PROJECT_ROOT
 from service.errors import ProductError
 from service.expiration import utc
 from service.geography import nearest_terminal, pickup_distance_miles, valid_coordinates
-from service.scheduling import schedule_conflicts, unit_schedule_rejections
+from service.scheduling import reservation_conflicts, schedule_conflicts, unit_schedule_rejections
 
 
 def routing_policy() -> PickupRoutingPolicy:
@@ -75,6 +75,9 @@ def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouti
     conflicts = schedule_conflicts(
         session, [unit.unit_id for unit in units], shipment.pickup_at, shipment.delivery_at,
     )
+    reservations = reservation_conflicts(
+        session, [unit.unit_id for unit in units], shipment.pickup_at, shipment.delivery_at,
+    )
     raw_distances = {}
     for unit in units:
         available = unit.status not in ('maintenance', 'off_duty') and (
@@ -85,6 +88,8 @@ def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouti
         if not available:
             reasons.append('unit_unavailable_at_pickup')
         schedule_reasons = unit_schedule_rejections(unit, shipment.pickup_at, conflicts[unit.unit_id])
+        if reservations[unit.unit_id]:
+            schedule_reasons.append('assignment_window_reserved')
         reasons.extend(schedule_reasons)
         distance = None
         within_limit = False
@@ -107,6 +112,7 @@ def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouti
             schedule_passed=not schedule_reasons,
             eligible=bool(available) and within_limit and not schedule_reasons,
             conflicting_assignments=conflicts[unit.unit_id],
+            conflicting_reservations=reservations[unit.unit_id],
             rejection_reasons=reasons,
         ))
     available_units = [unit for unit in result.units if unit.available_at_pickup]
@@ -125,6 +131,7 @@ def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouti
             result.rejection_reasons.extend(reason for reason in candidate.rejection_reasons if reason in (
                 'unit_status_unavailable', 'unit_available_after_pickup',
                 'unit_availability_unknown', 'assignment_window_overlap',
+                'assignment_window_reserved',
             ))
         if not candidate.within_move_limit:
             result.rejection_reasons.append('pickup_move_exceeds_limit')

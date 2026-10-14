@@ -4,7 +4,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from schema.assignment import ACTIVE_ASSIGNMENT_STATUSES, Assignment
-from schema.scheduling import ScheduleConflict
+from schema.assignment_reservation import AssignmentReservation
+from schema.dispatch_action import DispatchAction
+from schema.scheduling import ReservationConflict, ScheduleConflict
 from service.expiration import utc
 
 BOOKABLE_UNIT_STATUSES = ('available', 'assigned', 'in_transit')
@@ -41,3 +43,22 @@ def unit_schedule_rejections(unit, pickup_at: datetime, conflicts: list[Schedule
     if conflicts:
         reasons.append('assignment_window_overlap')
     return reasons
+
+
+def reservation_conflicts(session: Session, unit_ids, pickup_at: datetime, delivery_at: datetime):
+    conflicts = {unit_id: [] for unit_id in unit_ids}
+    if not conflicts:
+        return conflicts
+    rows = session.execute(select(AssignmentReservation, DispatchAction.request_status).join(
+        DispatchAction, DispatchAction.action_id == AssignmentReservation.action_id,
+    ).where(
+        AssignmentReservation.unit_id.in_(unit_ids),
+        AssignmentReservation.busy_from < utc(delivery_at),
+        AssignmentReservation.busy_until > utc(pickup_at),
+    ).order_by(AssignmentReservation.busy_from, AssignmentReservation.action_id)).all()
+    for reservation, status in rows:
+        conflicts[reservation.unit_id].append(ReservationConflict(
+            action_id=reservation.action_id, busy_from=utc(reservation.busy_from),
+            busy_until=utc(reservation.busy_until), request_status=status,
+        ))
+    return conflicts
