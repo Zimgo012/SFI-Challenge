@@ -1,3 +1,31 @@
-// Add confirmed backend routes here, relative to VITE_API_BASE_URL.
-// Example: users: '/users'
-export const endpoints = {} as const
+const id = encodeURIComponent
+
+// Paths are relative to the dispatcher origin, including the /api prefix.
+export const endpoints = {
+  loads: {
+    list: '/api/loads',
+    detail: (externalId: string) => `/api/loads/${id(externalId)}`,
+    accept: (externalId: string) => `/api/loads/${id(externalId)}/accept`,
+    decline: (externalId: string) => `/api/loads/${id(externalId)}/decline`,
+    bid: (externalId: string) => `/api/loads/${id(externalId)}/bid`,
+  },
+  bids: '/api/bids',
+  terminals: {
+    list: '/api/terminals',
+    detail: (code: string) => `/api/terminals/${id(code)}`,
+    status: '/api/terminals/status',
+    statusWebSocket: '/api/terminals/status/ws',
+  },
+  fleet: {
+    units: '/api/fleet/units',
+    unit: (unitId: string) => `/api/fleet/units/${id(unitId)}`,
+    capacity: '/api/fleet/capacity',
+    legacyCapacity: '/fleet/capacity',
+  },
+  shipments: '/api/shipments',
+  activity: '/api/activity',
+  overview: '/api/overview',
+  systemStatus: '/api/system/status',
+  orderExpiration: (externalId: string) => `/orders/${id(externalId)}/expiration`,
+  health: '/health',
+} as const

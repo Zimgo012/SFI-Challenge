@@ -1,46 +1,18 @@
 import { env } from '../config/env'
 
-export class ApiError extends Error {
-  readonly status: number
-  readonly body: unknown
+const apiUrl = env.apiBaseUrl
 
-  constructor(status: number, statusText: string, body: unknown) {
-    super(`API request failed: ${status} ${statusText}`)
-    this.name = 'ApiError'
-    this.status = status
-    this.body = body
-  }
-}
-
-/** Request JSON from a path relative to the configured API base URL. */
-export async function apiRequest<T = unknown>(
-  endpoint: string,
+export async function apiFetch(
+  path: string,
   options: RequestInit = {},
-): Promise<T | undefined> {
-  const headers = new Headers(options.headers)
-  if (!headers.has('Accept')) headers.set('Accept', 'application/json')
+) {
+  const headers = new Headers({ 'Content-Type': 'application/json' })
+  new Headers(options.headers).forEach((value, name) => {
+    headers.set(name, value)
+  })
 
-  const response = await fetch(
-    `${env.apiBaseUrl}/${endpoint.replace(/^\/+/, '')}`,
-    { ...options, headers },
-  )
-
-  const text = await response.text()
-  let body: unknown = text || undefined
-
-  if (text) {
-    try {
-      body = JSON.parse(text)
-    } catch {
-      // Preserve non-JSON error responses for callers to inspect.
-      if (response.ok) throw new Error('Expected a JSON response from the API')
-    }
-  }
-
-  if (!response.ok) {
-    throw new ApiError(response.status, response.statusText, body)
-  }
-
-  // The generic describes the expected response; it does not validate JSON.
-  return body as T | undefined
+  return fetch(`${apiUrl}${path}`, {
+    ...options,
+    headers,
+  })
 }
