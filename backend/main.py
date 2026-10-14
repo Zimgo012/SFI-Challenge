@@ -1,8 +1,9 @@
 from fastapi import FastAPI
 
 from controller.health_controller import router as health_router
+from startup import lifespan
 
-app = FastAPI(title='SFI Challenge API', version='0.1.0')
+app = FastAPI(title='SFI Challenge API', version='0.1.0', lifespan=lifespan)
 app.include_router(health_router)
 
 
