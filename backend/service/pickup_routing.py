@@ -15,6 +15,7 @@ from service.database import PROJECT_ROOT
 from service.errors import ProductError
 from service.expiration import utc
 from service.geography import nearest_terminal, pickup_distance_miles, valid_coordinates
+from service.scheduling import schedule_conflicts, unit_schedule_rejections
 
 
 def routing_policy() -> PickupRoutingPolicy:
@@ -27,7 +28,11 @@ def routing_policy() -> PickupRoutingPolicy:
 
 
 def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouting:
-    result = PickupRouting(external_id=shipment.external_id, policy=routing_policy())
+    result = PickupRouting(
+        external_id=shipment.external_id, policy=routing_policy(),
+        pickup_at=utc(shipment.pickup_at) if shipment.pickup_at else None,
+        delivery_at=utc(shipment.delivery_at) if shipment.delivery_at else None,
+    )
     if shipment.board_missing_at is not None:
         result.rejection_reasons.append('order_missing_from_board')
         return result
@@ -57,10 +62,19 @@ def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouti
     if shipment.pickup_at is None:
         result.rejection_reasons.append('pickup_time_unknown')
         return result
+    if shipment.delivery_at is None:
+        result.rejection_reasons.append('delivery_time_unknown')
+        return result
+    if utc(shipment.delivery_at) <= utc(shipment.pickup_at):
+        result.rejection_reasons.append('invalid_pickup_delivery_window')
+        return result
     units = session.scalars(select(FleetUnit).where(
         FleetUnit.home_terminal_id == terminal.terminal_id,
         FleetUnit.board_missing_at.is_(None),
     ).order_by(FleetUnit.employee_code, FleetUnit.board_unit_id)).all()
+    conflicts = schedule_conflicts(
+        session, [unit.unit_id for unit in units], shipment.pickup_at, shipment.delivery_at,
+    )
     raw_distances = {}
     for unit in units:
         available = unit.status not in ('maintenance', 'off_duty') and (
@@ -70,6 +84,8 @@ def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouti
         reasons = []
         if not available:
             reasons.append('unit_unavailable_at_pickup')
+        schedule_reasons = unit_schedule_rejections(unit, shipment.pickup_at, conflicts[unit.unit_id])
+        reasons.extend(schedule_reasons)
         distance = None
         within_limit = False
         if valid_coordinates(unit.current_latitude, unit.current_longitude):
@@ -88,6 +104,9 @@ def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouti
             unit_number=unit.unit_number,
             distance_miles=distance.quantize(Decimal('0.001')) if distance is not None else None,
             within_move_limit=within_limit, available_at_pickup=bool(available),
+            schedule_passed=not schedule_reasons,
+            eligible=bool(available) and within_limit and not schedule_reasons,
+            conflicting_assignments=conflicts[unit.unit_id],
             rejection_reasons=reasons,
         ))
     available_units = [unit for unit in result.units if unit.available_at_pickup]
@@ -101,6 +120,12 @@ def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouti
         # tie-break; apply our maximum to unrounded miles, including ties.
         candidate = min(available_units, key=lambda unit: round(float(raw_distances[unit.unit_id]), 1))
         result.routing_candidate_unit_id = candidate.unit_id
+        result.schedule_passed = candidate.schedule_passed
+        if not candidate.schedule_passed:
+            result.rejection_reasons.extend(reason for reason in candidate.rejection_reasons if reason in (
+                'unit_status_unavailable', 'unit_available_after_pickup',
+                'unit_availability_unknown', 'assignment_window_overlap',
+            ))
         if not candidate.within_move_limit:
             result.rejection_reasons.append('pickup_move_exceeds_limit')
     result.routing_passed = not result.rejection_reasons
