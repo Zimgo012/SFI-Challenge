@@ -1,10 +1,37 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from controller.health_controller import router as health_router
+from controller.order_controller import router as order_router
+from controller.activity_controller import router as activity_router
+from controller.bid_controller import router as bid_router
+from controller.fleet_controller import legacy_router as legacy_fleet_router
+from controller.fleet_controller import router as fleet_router
+from controller.load_controller import router as load_router
+from controller.overview_controller import router as overview_router
+from controller.shipment_controller import router as shipment_router
+from controller.system_controller import router as system_router
+from controller.terminal_controller import router as terminal_router
+from service.errors import ProductError
 from startup import lifespan
 
 app = FastAPI(title='SFI Challenge API', version='0.1.0', lifespan=lifespan)
 app.include_router(health_router)
+app.include_router(order_router)
+app.include_router(fleet_router)
+app.include_router(legacy_fleet_router)
+app.include_router(terminal_router)
+app.include_router(load_router)
+app.include_router(bid_router)
+app.include_router(shipment_router)
+app.include_router(activity_router)
+app.include_router(overview_router)
+app.include_router(system_router)
+
+
+@app.exception_handler(ProductError)
+async def product_error(request: Request, exc: ProductError):
+    return JSONResponse(status_code=exc.status_code, content={'detail': exc.detail})
 
 
 if __name__ == '__main__':

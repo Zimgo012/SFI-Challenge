@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, Text, Uuid
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Numeric, Text, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from schema.base import Base
@@ -10,6 +10,11 @@ from schema.base import Base
 
 class DispatchAction(Base):
     __tablename__ = 'dispatch_actions'
+    __table_args__ = (Index(
+        'uq_dispatch_actions_unresolved', 'shipment_id', unique=True,
+        sqlite_where=text("request_status IN ('submitting', 'unknown')"),
+        postgresql_where=text("request_status IN ('submitting', 'unknown')"),
+    ),)
 
     action_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4, nullable=False)
     shipment_id: Mapped[UUID] = mapped_column(

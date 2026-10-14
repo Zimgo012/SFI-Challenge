@@ -10,6 +10,7 @@ from schema.assignment import Assignment
 from schema.historical_shipment import HistoricalShipment
 from schema.simulation_clock import SimulationClock
 from schema.fleet_capacity import FleetCapacity
+from schema.activity import Activity
 
 __all__ = [
     'Base',
@@ -22,4 +23,5 @@ __all__ = [
     'HistoricalShipment',
     'SimulationClock',
     'FleetCapacity',
+    'Activity',
 ]

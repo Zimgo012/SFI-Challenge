@@ -10,6 +10,8 @@ from websockets.asyncio.client import connect
 from schema.board_event import BoardEvent
 from service.database import get_engine
 from service.ingest import ingest, persist_orders
+from service.activity import record_system_event
+from service.system_state import connection_state
 
 # Inherit Uvicorn's console handler so temporary order logs are visible locally.
 logger = logging.getLogger('uvicorn.error.orders')
@@ -78,6 +80,7 @@ async def consume_orders(base_url: str) -> None:
     retry_delay = 1
     while True:
         try:
+            connection_state.set('connecting')
             async with connect(
                 url, open_timeout=10, close_timeout=5,
                 ping_interval=20, ping_timeout=20, max_size=4 * 1024 * 1024,
@@ -86,13 +89,21 @@ async def consume_orders(base_url: str) -> None:
                 # closing the gap between recovery and consuming new arrivals.
                 await ingest(base_url)
                 retry_delay = 1
+                connection_state.set('connected')
                 logger.info('Order WebSocket connected; fresh board sync complete')
                 async for message in websocket:
                     await handle_event(message, base_url)
             logger.warning('Order WebSocket closed; reconnecting in %ss', retry_delay)
+            connection_state.set('reconnecting')
         except asyncio.CancelledError:
+            connection_state.set('disconnected')
             raise
-        except Exception:
+        except Exception as exc:
+            connection_state.set('reconnecting', type(exc).__name__)
             logger.exception('Order stream failed; reconnecting in %ss', retry_delay)
+            try:
+                await asyncio.to_thread(record_system_event, get_engine(), 'stream.error', type(exc).__name__)
+            except Exception:
+                logger.exception('Could not record stream failure in activity history')
         await asyncio.sleep(retry_delay)
         retry_delay = min(retry_delay * 2, 30)

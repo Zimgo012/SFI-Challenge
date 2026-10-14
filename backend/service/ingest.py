@@ -16,6 +16,9 @@ from service.database import get_engine
 from service.expiration import expire_due_offers
 from service.reconciliation import reconcile_known_orders
 from service.fleet import log_discrepancies, reconcile_fleet, validate_roster
+from service.activity import add_activity
+from service.assignments import reconcile_bookings
+from service.expiration import simulated_now
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +50,8 @@ def upsert_orders(
         row.code.upper(): row.terminal_id for row in session.scalars(select(Terminal))
     }
     for order in orders:
+        previous = session.scalar(select(Shipment).where(Shipment.external_id == order.external_id))
+        previous_status = previous.status if previous else None
         values = order.model_dump(
             exclude={'id', 'created_at', 'assigned_driver_id'}, exclude_unset=True,
         )
@@ -60,6 +65,13 @@ def upsert_orders(
             if f'{side}_terminal_code' in order.model_fields_set:
                 values[f'{side}_terminal_id'] = terminals_by_code.get((code or '').upper())
         upsert(session, Shipment, 'external_id', values, insert_only=created_only)
+        current = session.scalar(select(Shipment).where(Shipment.external_id == order.external_id).execution_options(populate_existing=True))
+        if previous_status is None or previous_status != current.status:
+            add_activity(
+                session, 'order.ingested' if previous_status is None else 'order.status_changed',
+                f'Order {current.external_id}: {current.status}', shipment_id=current.shipment_id,
+                details={'previous_status': previous_status, 'status': current.status, 'source': 'board'},
+            )
 
 
 def persist_orders(
@@ -68,7 +80,6 @@ def persist_orders(
 ) -> None:
     synced_at = datetime.now(timezone.utc)
     with Session(engine) as session, session.begin():
-        upsert_orders(session, orders, synced_at, created_only=created_only)
         if clock is not None:
             stored_clock = session.get(SimulationClock, 1)
             previous_wall_time = (
@@ -79,7 +90,11 @@ def persist_orders(
                 upsert(session, SimulationClock, 'clock_id', {
                     'clock_id': 1, **clock.model_dump(), 'last_synced_at': synced_at,
                 })
+        upsert_orders(session, orders, synced_at, created_only=created_only)
         expire_due_offers(session)
+        latest_clock = session.get(SimulationClock, 1)
+        if latest_clock is not None:
+            reconcile_bookings(session, simulated_now(latest_clock))
 
 
 def persist_snapshot(
@@ -121,6 +136,10 @@ def persist_snapshot(
                 )
                 upsert(session, FleetUnit, 'board_unit_id', values)
 
+        upsert(session, SimulationClock, 'clock_id', {
+            'clock_id': 1, **clock.model_dump(),
+            'last_synced_at': clock_received_at or synced_at,
+        })
         upsert_orders(session, orders, synced_at)
         if missing_order_ids:
             session.execute(
@@ -129,12 +148,8 @@ def persist_snapshot(
                 .values(board_missing_at=func.coalesce(Shipment.board_missing_at, synced_at))
             )
 
-        upsert(session, SimulationClock, 'clock_id', {
-            'clock_id': 1,
-            **clock.model_dump(),
-            'last_synced_at': clock_received_at or synced_at,
-        })
         expire_due_offers(session)
+        reconcile_bookings(session, clock.sim_time_utc)
         capacity = reconcile_fleet(session, fleet, clock.sim_time_utc, synced_at)
     log_discrepancies(capacity)
 

@@ -12,6 +12,7 @@ from schema.fleet_unit import FleetUnit
 from schema.shipment import Shipment
 from schema.terminal import Terminal
 from service.expiration import utc
+from service.activity import add_activity
 
 logger = logging.getLogger('uvicorn.error.fleet')
 ACTIVE_ASSIGNMENT_STATUSES = ('confirmed', 'accepted', 'in_transit', 'active')
@@ -105,6 +106,13 @@ def reconcile_fleet(
             consistent=not issues, discrepancies=issues,
             as_of_sim_time=utc(sim_time), checked_at=utc(synced_at),
         )
+        previous = session.get(FleetCapacity, terminal.terminal_id)
+        if issues and (previous is None or previous.discrepancies != issues):
+            add_activity(session, 'fleet.discrepancy', f'Fleet discrepancy at {terminal.code}',
+                         details={'terminal_code': terminal.code, 'discrepancies': issues})
+        elif previous is not None and previous.discrepancies and not issues:
+            add_activity(session, 'fleet.reconciled', f'Fleet discrepancy resolved at {terminal.code}',
+                         details={'terminal_code': terminal.code})
         session.merge(FleetCapacity(
             terminal_id=terminal.terminal_id,
             board_total_units=board_counts.total_units if board_counts else None,

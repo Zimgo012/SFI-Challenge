@@ -48,11 +48,17 @@ def expire_due_offers(session: Session, wall_now: datetime | None = None) -> lis
             Shipment.expires_at <= simulated_now(clock, wall_now),
         )
         .values(status='expired')
-        .returning(Shipment.external_id)
+        .returning(Shipment.shipment_id, Shipment.external_id)
         .execution_options(synchronize_session=False)
     )
     # This is a local status derivation; last_synced_at still means a board sync.
-    return list(session.scalars(statement))
+    expired = session.execute(statement).all()
+    if expired:
+        from service.activity import add_activity
+        for shipment_id, external_id in expired:
+            add_activity(session, 'order.expired', f'Order {external_id}: expired',
+                         shipment_id=shipment_id, details={'source': 'simulated_clock'})
+    return [external_id for _, external_id in expired]
 
 
 def refresh_expirations(engine: Engine) -> list[str]:
