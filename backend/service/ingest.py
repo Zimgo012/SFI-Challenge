@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from schema.board_api import BoardClock, BoardFleetSnapshot, BoardOrder, BoardTerminal
 from schema.dispatcher import FleetUnit, Shipment, SimulationClock, Terminal
 from service.database import get_engine
+from service.expiration import expire_due_offers
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ def persist_orders(
                 upsert(session, SimulationClock, 'clock_id', {
                     'clock_id': 1, **clock.model_dump(), 'last_synced_at': synced_at,
                 })
+        expire_due_offers(session)
 
 
 def persist_snapshot(
@@ -84,6 +86,7 @@ def persist_snapshot(
     fleet: list[BoardFleetSnapshot],
     clock: BoardClock,
     orders: list[BoardOrder],
+    *, clock_received_at: datetime | None = None,
 ) -> None:
     synced_at = datetime.now(timezone.utc)
     with Session(engine) as session, session.begin():
@@ -118,8 +121,9 @@ def persist_snapshot(
         upsert(session, SimulationClock, 'clock_id', {
             'clock_id': 1,
             **clock.model_dump(),
-            'last_synced_at': synced_at,
+            'last_synced_at': clock_received_at or synced_at,
         })
+        expire_due_offers(session)
 
 
 async def ingest(
@@ -129,12 +133,16 @@ async def ingest(
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> list[BoardOrder]:
     """Fetch and validate board state, then atomically upsert it locally."""
+    clock_received_at = None
     async with httpx.AsyncClient(
         base_url=external_api_url.rstrip('/') + '/', timeout=20.0, transport=transport,
     ) as client:
         async def fetch(path: str):
+            nonlocal clock_received_at
             response = await client.get(path)
             response.raise_for_status()
+            if path == 'simulation/clock':
+                clock_received_at = datetime.now(timezone.utc)
             return response.json(parse_float=Decimal)
 
         terminals_data, fleet_data, clock_data, orders_data = await asyncio.gather(
@@ -148,7 +156,7 @@ async def ingest(
     orders = TypeAdapter(list[BoardOrder]).validate_python(orders_data)
     await asyncio.to_thread(
         persist_snapshot, engine if engine is not None else get_engine(),
-        terminals, fleet, clock, orders,
+        terminals, fleet, clock, orders, clock_received_at=clock_received_at,
     )
     logger.info(
         'Board sync complete: %d terminals, %d units, %d orders; simulated time %s',

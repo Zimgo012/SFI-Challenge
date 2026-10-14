@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, Numeric, Text, Uuid
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, Numeric, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from schema.base import Base
@@ -10,6 +10,7 @@ from schema.base import Base
 
 class Shipment(Base):
     __tablename__ = 'shipments'
+    __table_args__ = (Index('ix_shipments_status_expires_at', 'status', 'expires_at'),)
 
     shipment_id: Mapped[UUID] = mapped_column(
         Uuid,

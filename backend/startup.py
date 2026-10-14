@@ -1,13 +1,16 @@
+import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 
 from service.ingest import ingest as call_external_api
+from service.order_stream import consume_orders
+from service.expiration import monitor_expirations
 
 logger = logging.getLogger(__name__)
 ENV_FILE = Path(__file__).resolve().parent / '.env'
@@ -19,9 +22,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     load_dotenv(ENV_FILE, override=False)
     external_api_url = os.getenv('EXTERNAL_API_URL', '').strip()
 
+    orders_task = None
+    expiration_task = None
     if external_api_url:
         await call_external_api(external_api_url)
+        orders_task = asyncio.create_task(consume_orders(external_api_url), name='board-orders')
+        app.state.orders_task = orders_task
+        expiration_task = asyncio.create_task(monitor_expirations(), name='offer-expirations')
+        app.state.expiration_task = expiration_task
     else:
         logger.info('EXTERNAL_API_URL is unset; skipping external API startup hook.')
 
-    yield
+    try:
+        yield
+    finally:
+        tasks = [task for task in (orders_task, expiration_task) if task is not None]
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with suppress(asyncio.CancelledError):
+                await task
