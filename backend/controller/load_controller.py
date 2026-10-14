@@ -1,11 +1,13 @@
 from typing import Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, WebSocket
 
 from controller.dependencies import Database, Limit, Offset
 from schema.api import ActionRequest, ActionResult, BidRequest, LoadDetail, LoadView, Page
+from schema.load_stream import StreamOrderStatus, StreamOrderType
 from service import dashboard
 from service.actions import execute_action
+from service.load_stream import stream_loads
 
 router = APIRouter(prefix='/api/loads', tags=['Loads'])
 OrderType = Literal['fixed_rate', 'open_bid']
@@ -19,6 +21,18 @@ def loads(
     origin_terminal: str | None = None, include_missing: bool = False,
 ):
     return dashboard.list_loads(session, limit, offset, order_type, status, origin_terminal, include_missing=include_missing)
+
+
+@router.websocket('/ws')
+async def subscribe_loads(
+    websocket: WebSocket, session: Database,
+    order_type: StreamOrderType = 'open_bid', status: StreamOrderStatus = 'open',
+    origin_terminal: str | None = None,
+):
+    await stream_loads(
+        websocket, session.get_bind(), order_type=order_type,
+        status=status, origin_terminal=origin_terminal,
+    )
 
 
 @router.get('/{external_id}', response_model=LoadDetail)

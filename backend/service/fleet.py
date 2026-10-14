@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from schema.assignment import Assignment
+from schema.assignment import ACTIVE_ASSIGNMENT_STATUSES, Assignment
 from schema.board_api import BoardFleetSnapshot
 from schema.fleet_capacity import FleetCapacity
 from schema.fleet_capacity_response import CapacityCounts, FleetCapacityResponse
@@ -15,7 +15,6 @@ from service.expiration import utc
 from service.activity import add_activity
 
 logger = logging.getLogger('uvicorn.error.fleet')
-ACTIVE_ASSIGNMENT_STATUSES = ('confirmed', 'accepted', 'in_transit', 'active')
 
 
 def validate_roster(snapshots: list[BoardFleetSnapshot]) -> None:

@@ -83,7 +83,11 @@ def load_detail(session: Session, external_id: str) -> LoadDetail:
     row = session.scalar(select(Shipment).where(Shipment.external_id == external_id))
     if row is None:
         raise ProductError(404, 'Order not found')
-    assignment = session.scalar(select(Assignment).where(Assignment.shipment_id == row.shipment_id))
+    history = session.scalars(select(Assignment).where(
+        Assignment.shipment_id == row.shipment_id,
+    ).order_by(Assignment.confirmed_at.desc(), Assignment.assignment_id.desc())).all()
+    statuses = ('completed',) if row.status == 'completed' else ACTIVE_ASSIGNMENT_STATUSES
+    assignment = next((item for item in history if item.assignment_status in statuses), None)
     if row.status not in CONFIRMED_STATUSES or row.board_missing_at is not None:
         assignment = None
     if assignment is not None:
@@ -97,13 +101,33 @@ def load_detail(session: Session, external_id: str) -> LoadDetail:
         actions=[ActionView.model_validate(action) for action in actions],
         actual_assignment=AssignmentView.model_validate(assignment) if assignment else None,
         latest_evaluation=EvaluationView.model_validate(evaluation) if evaluation else None,
+        assignment_history=[AssignmentView.model_validate(item) for item in history],
     )
+
+
+def current_unit_assignment(session, unit):
+    if unit.board_missing_at is not None:
+        return None
+    return session.scalar(select(Assignment).join(Shipment).where(
+        Assignment.unit_id == unit.unit_id,
+        Assignment.assignment_status.in_(ACTIVE_ASSIGNMENT_STATUSES),
+        Shipment.board_missing_at.is_(None), Shipment.status.in_(('accepted', 'in_transit')),
+        Shipment.board_assigned_unit_id == unit.board_unit_id,
+    ).order_by(Assignment.busy_from, Assignment.confirmed_at, Assignment.assignment_id))
 
 
 def unit_view(session, row):
     view = UnitView.model_validate(row)
     terminal = session.get(Terminal, row.home_terminal_id)
     view.terminal_code = terminal.code if terminal else None
+    if row.board_missing_at is None:
+        view.current_terminal_id = row.home_terminal_id
+        view.current_terminal_code = view.terminal_code
+        assignment = current_unit_assignment(session, row)
+        if assignment is not None:
+            destination = session.get(Terminal, assignment.destination_terminal_id)
+            view.next_terminal_id = destination.terminal_id
+            view.next_terminal_code = destination.code
     return view
 
 
@@ -122,12 +146,7 @@ def unit_detail(session, unit_id: UUID):
     unit = session.get(FleetUnit, unit_id)
     if unit is None:
         raise ProductError(404, 'Fleet unit not found')
-    assignment = session.scalar(select(Assignment).where(
-        Assignment.unit_id == unit_id, Assignment.assignment_status.in_(ACTIVE_ASSIGNMENT_STATUSES),
-    ).join(Shipment).where(
-        Shipment.board_missing_at.is_(None), Shipment.status.in_(CONFIRMED_STATUSES),
-        Shipment.board_assigned_unit_id == unit.board_unit_id,
-    ).order_by(Assignment.busy_until.desc())) if unit.board_missing_at is None else None
+    assignment = current_unit_assignment(session, unit)
     return UnitDetail(
         **unit_view(session, unit).model_dump(),
         actual_assignment=AssignmentView.model_validate(assignment) if assignment else None,
