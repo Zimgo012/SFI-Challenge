@@ -1,12 +1,112 @@
+import { useEffect, useRef, useState } from 'react'
+import { subscribeShipments } from '../api/shipment-stream'
+import type { LiveShipmentsState } from '../api/shipment-stream'
+import type { LoadView } from '../api/types'
 import EmptyPanel from '../components/EmptyPanel'
 import PageSection from '../components/PageSection'
+import ShipmentDialog from '../components/ShipmentDialog'
+import { amount, label, timestamp } from '../utils/load-format'
+import { filterShipments, isDeliveryOverdue, sortShipments } from '../utils/shipments'
+import type { ShipmentSort, ShipmentStatus } from '../utils/shipments'
+
+const pageSize = 20
+const statusLabels: Record<string, string> = { accepted: 'Accepted', in_transit: 'In transit', completed: 'Delivered' }
 
 export default function ShipmentsPage() {
+  const [{ shipments, system, connection, error, revision }, setStream] = useState<LiveShipmentsState>({
+    shipments: null, system: null, connection: 'connecting', error: null, revision: 0,
+  })
+  const [search, setSearch] = useState('')
+  const [status, setStatus] = useState<ShipmentStatus>('all')
+  const [sort, setSort] = useState<ShipmentSort>('created')
+  const [direction, setDirection] = useState<'asc' | 'desc'>('desc')
+  const [page, setPage] = useState(1)
+  const filters = useRef<{ search: string; status: ShipmentStatus }>({ search: '', status: 'all' })
+  const [selected, setSelected] = useState<LoadView | null>(null)
+  const selectedShipment = selected ? shipments?.find((shipment) => shipment.external_id === selected.external_id) ?? selected : null
+
+  useEffect(() => subscribeShipments((state) => {
+    setStream(state)
+    if (state.shipments) {
+      const count = filterShipments(state.shipments, filters.current.search, filters.current.status).length
+      setPage((value) => Math.min(value, Math.max(1, Math.ceil(count / pageSize))))
+    }
+  }), [])
+
+  const rows = shipments ?? []
+  const visible = sortShipments(filterShipments(rows, search, status), sort, direction)
+  const totalPages = Math.max(1, Math.ceil(visible.length / pageSize))
+  const currentPage = Math.min(page, totalPages)
+  const offset = (currentPage - 1) * pageSize
+  const pageRows = visible.slice(offset, offset + pageSize)
+
   return (
-    <PageSection title="Shipments" description="Track confirmed bookings through delivery.">
-      <div className="grid gap-5 xl:grid-cols-2">
-        <EmptyPanel title="Confirmed bookings" description="Shipment progress and delivery status will appear here when shipment data is connected." />
+    <PageSection title="Shipments" description="Track confirmed bookings from acceptance through delivery. Shipment statuses update automatically.">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-base-content/65">{system?.sim_time_utc ? `Simulation time: ${timestamp(system.sim_time_utc)}` : 'Simulation time unavailable'}</p>
+        <span role="status" className={`badge badge-soft ${connection === 'live' && !error ? 'badge-success' : 'badge-warning'}`}>{connection === 'reconnecting' ? 'Reconnecting…' : error ? 'Updates delayed' : connection === 'live' ? 'Live updates' : 'Connecting…'}</span>
       </div>
+      {error && <div role="alert" className="alert alert-warning"><div><p>{error}</p><p className="mt-1 text-sm">{shipments ? 'Showing previous shipments. ' : ''}Live updates will resume automatically when the service recovers.</p></div></div>}
+      {shipments !== null && (
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {[
+            { title: 'Confirmed bookings', value: rows.length },
+            { title: 'Awaiting pickup', value: rows.filter((shipment) => shipment.status === 'accepted').length },
+            { title: 'In transit', value: rows.filter((shipment) => shipment.status === 'in_transit').length },
+            { title: 'Delivered', value: rows.filter((shipment) => shipment.status === 'completed').length },
+          ].map((summary) => <div key={summary.title} className="stat rounded-xl border border-base-300 bg-base-100 p-4"><div className="stat-title text-xs">{summary.title}</div><div className="stat-value text-2xl text-primary">{summary.value}</div></div>)}
+        </div>
+      )}
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1.5 text-xs font-medium">Search<input type="search" className="input input-sm w-64" placeholder="Shipment, route, unit…" value={search} onChange={(event) => {
+          setSearch(event.target.value)
+          filters.current.search = event.target.value
+          setPage(1)
+        }} /></label>
+        <label className="flex flex-col gap-1.5 text-xs font-medium">Status<select className="select select-sm w-40" value={status} onChange={(event) => {
+          const value = event.target.value as ShipmentStatus
+          setStatus(value)
+          filters.current.status = value
+          setPage(1)
+        }}><option value="all">All shipments</option><option value="accepted">Accepted</option><option value="in_transit">In transit</option><option value="completed">Delivered</option></select></label>
+        <label className="flex flex-col gap-1.5 text-xs font-medium">Sort by<select className="select select-sm w-40" value={sort} onChange={(event) => { setSort(event.target.value as ShipmentSort); setPage(1) }}><option value="created">Created date</option><option value="pickup">Pickup date</option><option value="delivery">Delivery date</option><option value="synced">Last synced</option></select></label>
+        <label className="flex flex-col gap-1.5 text-xs font-medium">Order<select className="select select-sm w-36" value={direction} onChange={(event) => { setDirection(event.target.value as 'asc' | 'desc'); setPage(1) }}><option value="desc">Newest first</option><option value="asc">Oldest first</option></select></label>
+      </div>
+      <div aria-busy={shipments === null}>
+        {shipments === null && <div role="status" className="flex items-center gap-3 rounded-xl border border-base-300 bg-base-100 p-8"><span className="loading loading-spinner text-primary" aria-hidden="true" />Loading confirmed shipments…</div>}
+        {shipments !== null && rows.length === 0 && <EmptyPanel title="No confirmed shipments yet" description="Accepted bookings and winning bids will appear here once confirmed by the board." />}
+        {shipments !== null && rows.length > 0 && visible.length === 0 && <EmptyPanel title="No matching shipments" description="Try another shipment, route, unit, or status." />}
+        {shipments !== null && visible.length > 0 && (
+          <div className="overflow-hidden rounded-xl border border-base-300 bg-base-100">
+            <div className="overflow-x-auto"><table className="table table-sm">
+              <caption className="sr-only">Confirmed shipments, current status, schedule, unit assignment, and estimated total cost.</caption>
+              <thead><tr>{['Shipment', 'Route', 'Status', 'Schedule', 'Unit', 'Estimated cost', 'Details'].map((title) => <th scope="col" key={title}>{title}</th>)}</tr></thead>
+              <tbody>{pageRows.map((shipment) => (
+                <tr key={shipment.external_id} className="hover:bg-base-200/60">
+                  <th scope="row" className="font-normal"><p className="font-semibold text-primary">{shipment.external_id}</p><p className="mt-1 text-xs text-base-content/60">{label(shipment.order_type)}</p></th>
+                  <td className="whitespace-nowrap"><p>{shipment.origin_terminal_code ?? 'Unknown'} → {shipment.destination_terminal_code ?? 'Unknown'}</p><p className="mt-1 text-xs text-base-content/60">{shipment.origin_city ?? '—'} → {shipment.destination_city ?? '—'}</p></td>
+                  <td><span className={`badge badge-sm badge-soft whitespace-nowrap ${shipment.status === 'completed' ? 'badge-success' : shipment.status === 'in_transit' ? 'badge-primary' : 'badge-info'}`}>{statusLabels[shipment.status] ?? label(shipment.status)}</span>{isDeliveryOverdue(shipment, system?.sim_time_utc ?? null) && <p className="mt-1 whitespace-nowrap text-xs text-error">Delivery overdue</p>}</td>
+                  <td className="whitespace-nowrap text-xs"><p>Pickup: {timestamp(shipment.pickup_at)}</p><p className="mt-1 text-base-content/60">Delivery: {timestamp(shipment.delivery_at)}</p></td>
+                  <td>{shipment.board_assigned_unit_id ?? '—'}<p className="mt-1 text-xs text-base-content/60">{shipment.assigned_terminal_code ?? '—'}</p></td>
+                  <td className="whitespace-nowrap font-semibold tabular-nums">{amount(shipment.estimated_total_cost)}</td>
+                  <td><button type="button" className="btn btn-ghost btn-xs whitespace-nowrap text-primary" aria-haspopup="dialog" aria-label={`More information about shipment ${shipment.external_id}`} onClick={() => setSelected(shipment)}>More information</button></td>
+                </tr>
+              ))}</tbody>
+            </table></div>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-base-300 px-4 py-3 text-xs text-base-content/60">
+              <p role="status">Showing {offset + 1}–{Math.min(offset + pageSize, visible.length)} of {visible.length}</p>
+              <nav aria-label="Shipments pagination" className="flex items-center gap-3"><span>Page {currentPage} of {totalPages}</span><div className="join">
+                <button type="button" className="btn btn-sm join-item" disabled={currentPage === 1} aria-label="First page" onClick={() => setPage(1)}>{'<<'}</button>
+                <button type="button" className="btn btn-sm join-item" disabled={currentPage === 1} aria-label="Previous page" onClick={() => setPage(currentPage - 1)}>{'<'}</button>
+                <span className="btn btn-sm join-item pointer-events-none" aria-current="page">{currentPage}</span>
+                <button type="button" className="btn btn-sm join-item" disabled={currentPage === totalPages} aria-label="Next page" onClick={() => setPage(currentPage + 1)}>{'>'}</button>
+                <button type="button" className="btn btn-sm join-item" disabled={currentPage === totalPages} aria-label="Last page" onClick={() => setPage(totalPages)}>{'>>'}</button>
+              </div></nav>
+            </div>
+          </div>
+        )}
+      </div>
+      {selectedShipment && <ShipmentDialog key={selectedShipment.external_id} shipment={selectedShipment} revision={revision} onClose={() => setSelected(null)} />}
     </PageSection>
   )
 }

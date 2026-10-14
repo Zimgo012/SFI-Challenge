@@ -50,6 +50,20 @@ events, including heartbeats. Requests are serialized and event bursts coalesce
 into one follow-up refresh. The selected unit and filters persist during updates.
 Leaving the page closes both streams and cancels outstanding requests.
 
+Shipments loads every page from `/api/shipments` and then uses full order
+WebSocket snapshots for live updates. It includes only board-present accepted,
+in-transit, and completed bookings, covering fixed-rate acceptances and winning
+bids. Pending bids and unconfirmed offers are excluded. Summary counts, route
+and unit search, status filters, date sorting, estimated cost, and 20-row
+pagination support tracking. Delivery-overdue indicators use the simulation
+clock and never infer completion from scheduled dates.
+
+More information opens a centered read-only shipment dialog with lifecycle
+steps, route/pricing details, the confirmed assignment, and assignment history
+from the order detail API. Details refresh on live updates. Disconnects retain
+previous shipments; cleanup closes the stream and aborts reads. Late initial
+HTTP responses cannot overwrite newer WebSocket snapshots.
+
 The Load Board subscribes to `/api/loads/ws?order_type=open_bid&status=open` and
 shows only open bid opportunities. Orders disappear as they expire or change status.
 Snapshots, updates, and heartbeats replace the complete result set, including

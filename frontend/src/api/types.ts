@@ -20,6 +20,7 @@ export interface AssignmentView {
   assignment_status: string
   confirmed_at: string
   completed_at: string | null
+  cancelled_at: string | null
 }
 
 export interface ActionView {
@@ -154,6 +155,7 @@ export interface LoadDetail extends LoadView {
   actions: Array<ActionView>
   actual_assignment: AssignmentView | null
   latest_evaluation: EvaluationView | null
+  assignment_history: AssignmentView[]
 }
 
 export interface UnitDetail extends UnitView {
