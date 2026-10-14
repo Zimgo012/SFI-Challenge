@@ -1,6 +1,6 @@
 import os
 from datetime import timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
 from dotenv import dotenv_values
 from pydantic import ValidationError
@@ -18,6 +18,7 @@ from schema.simulation_clock import SimulationClock
 from schema.terminal import Terminal
 from service.database import PROJECT_ROOT
 from service.errors import ProductError
+from service.economics import expected_economics
 from service.expiration import simulated_now, utc
 from service.geography import nearest_terminal, pickup_distance_miles
 from service.pickup_routing import evaluate_pickup_routing
@@ -63,7 +64,7 @@ def occupied_seconds(intervals, start, end) -> Decimal:
 
 
 class RankingContext:
-    def __init__(self, session: Session, unit_id=None):
+    def __init__(self, session: Session, unit_id=None, bid_rate=None):
         if unit_id is not None and session.get(FleetUnit, unit_id) is None:
             raise ProductError(404, 'Fleet unit not found')
         clock = session.get(SimulationClock, 1)
@@ -73,6 +74,7 @@ class RankingContext:
         self.policy = ranking_policy()
         self.end = self.now + timedelta(hours=float(self.policy.utilization_horizon_hours))
         self.unit_id = unit_id
+        self.bid_rate = bid_rate
         self.units = {row.unit_id: row for row in session.scalars(select(FleetUnit))}
         self.bookings = {key: [] for key in self.units}
         rows = session.execute(select(Assignment, Shipment).join(
@@ -97,6 +99,7 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
     report = OrderRecommendations(
         external_id=shipment.external_id, evaluated_at_sim=context.now,
         horizon_end=context.end, policy=context.policy,
+        entered_bid_rate=context.bid_rate,
     )
     if shipment.board_missing_at is not None:
         report.rejection_reasons.append('order_missing_from_board')
@@ -150,8 +153,7 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
         score = (empty_score * policy.empty_miles_weight + continuity * policy.continuity_weight
                  + utilization * policy.utilization_weight) / (
                      policy.empty_miles_weight + policy.continuity_weight + policy.utilization_weight)
-        cpm = shipment.cost_per_mile
-        cost_known = cpm is not None and cpm.is_finite() and cpm >= 0
+        economics = expected_economics(shipment, miles, context.bid_rate)
         match = RankedMatch(
             external_id=shipment.external_id, shipment_id=shipment.shipment_id,
             unit_id=unit.unit_id, board_unit_id=unit.board_unit_id, unit_number=unit.unit_number,
@@ -160,9 +162,9 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
             projected_latitude=projection.latitude, projected_longitude=projection.longitude,
             position_source=projection.source, source_assignment_id=projection.source_assignment_id,
             deadhead_miles=miles.quantize(Decimal('0.001')),
-            cost_per_mile=cpm if cost_known else None,
-            deadhead_cost=(miles * cpm).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) if cost_known else None,
-            cost_missing_reason=None if cost_known else 'cost_per_mile_unknown_or_invalid',
+            cost_per_mile=economics.cost_per_mile, deadhead_cost=economics.deadhead_cost,
+            cost_missing_reason=None if economics.cost_per_mile is not None else 'cost_per_mile_unknown_or_invalid',
+            economics=economics,
             empty_miles_score=empty_score.quantize(SIX_PLACES), continues_previous_route=continues,
             previous_assignment_id=previous_id, idle_gap_seconds=gap,
             continuity_score=continuity.quantize(SIX_PLACES),
@@ -183,11 +185,13 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
     return report, scored
 
 
-def order_recommendations(session: Session, external_id: str, unit_id=None) -> OrderRecommendations:
+def order_recommendations(session: Session, external_id: str, unit_id=None, bid_rate=None) -> OrderRecommendations:
     shipment = session.scalar(select(Shipment).where(Shipment.external_id == external_id))
     if shipment is None:
         raise ProductError(404, 'Order not found')
-    return rank_order(session, shipment, RankingContext(session, unit_id))[0]
+    if bid_rate is not None and shipment.order_type != 'open_bid':
+        raise ProductError(422, 'bid_rate is only valid for open-bid orders')
+    return rank_order(session, shipment, RankingContext(session, unit_id, bid_rate))[0]
 
 
 def recommendations(session: Session, limit=50, offset=0, unit_id=None,

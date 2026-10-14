@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
+from schema.economics import ExpectedEconomics
+
 
 class RankingPolicy(BaseModel):
     empty_miles_weight: Decimal = Field(default=Decimal('0.60'), ge=0, le=1, allow_inf_nan=False)
@@ -36,6 +38,7 @@ class RankedMatch(BaseModel):
     cost_per_mile: Decimal | None
     deadhead_cost: Decimal | None
     cost_missing_reason: str | None = None
+    economics: ExpectedEconomics
     empty_miles_score: Decimal
     continues_previous_route: bool
     previous_assignment_id: UUID | None
@@ -59,6 +62,7 @@ class OrderRecommendations(BaseModel):
     evaluated_at_sim: datetime
     horizon_end: datetime
     policy: RankingPolicy
+    entered_bid_rate: Decimal | None = None
     selected: RankedMatch | None = None
     ranked_units: list[RankedMatch] = Field(default_factory=list)
     rejected_units: list[RejectedUnit] = Field(default_factory=list)

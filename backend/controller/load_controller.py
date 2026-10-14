@@ -1,13 +1,15 @@
 from typing import Literal
+from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, WebSocket
+from fastapi import APIRouter, Query, WebSocket
 
 from controller.dependencies import Database, Limit, Offset
 from schema.api import ActionRequest, ActionResult, BidRequest, LoadDetail, LoadView, Page
 from schema.load_stream import StreamOrderStatus, StreamOrderType
 from schema.pickup_routing import PickupRouting
 from schema.recommendation import OrderRecommendations, RecommendationsPage
+from schema.cost_preview import CostPreviewRequest
 from service import dashboard
 from service.actions import execute_action
 from service.load_stream import stream_loads
@@ -38,8 +40,16 @@ def ranked_recommendations(
 
 
 @router.get('/{external_id}/recommendations', response_model=OrderRecommendations)
-def ranked_units(external_id: str, session: Database, unit_id: UUID | None = None):
-    return order_recommendations(session, external_id, unit_id)
+def ranked_units(
+    external_id: str, session: Database, unit_id: UUID | None = None,
+    bid_rate: Decimal | None = Query(default=None, gt=0, max_digits=18, decimal_places=6, allow_inf_nan=False),
+):
+    return order_recommendations(session, external_id, unit_id, bid_rate)
+
+
+@router.post('/{external_id}/cost-preview', response_model=OrderRecommendations)
+def cost_preview(external_id: str, body: CostPreviewRequest, session: Database):
+    return order_recommendations(session, external_id, body.unit_id, body.bid_rate)
 
 
 @router.websocket('/ws')
