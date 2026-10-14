@@ -118,6 +118,10 @@ export interface UnitView {
   last_synced_at: string | null
   board_missing_at: string | null
   terminal_code: string | null
+  current_terminal_id: string | null
+  current_terminal_code: string | null
+  next_terminal_id: string | null
+  next_terminal_code: string | null
 }
 
 export interface TerminalView {
@@ -295,3 +299,36 @@ export interface LoadStreamError {
 }
 
 export type LoadStreamEvent = LoadStreamMessage | LoadStreamError
+
+export interface ProjectedDelivery {
+  assignment_id: string
+  shipment_id: string
+  external_id: string
+  pickup_at: string
+  delivery_at: string
+  terminal_id: string | null
+  terminal_code: string | null
+  terminal_resolution: 'destination_code' | 'nearest_destination' | 'unresolved'
+  latitude: DecimalString | null
+  longitude: DecimalString | null
+}
+
+export interface UnitProjection {
+  unit_id: string
+  board_unit_id: number
+  baseline_sim_time: string | null
+  at: string | null
+  status: 'available' | 'busy' | 'unavailable' | 'unknown'
+  terminal_id: string | null
+  terminal_code: string | null
+  latitude: DecimalString | null
+  longitude: DecimalString | null
+  available_at: string | null
+  source: 'snapshot' | 'booked_delivery' | 'in_transit' | 'unknown'
+  source_assignment_id: string | null
+  next_terminal_id: string | null
+  next_terminal_code: string | null
+  deliveries: ProjectedDelivery[]
+  uncertain_action_ids: string[]
+  rejection_reasons: string[]
+}

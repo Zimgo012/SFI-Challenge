@@ -19,6 +19,8 @@ export const endpoints = {
   },
   fleet: {
     units: '/api/fleet/units',
+    projections: '/api/fleet/projections',
+    projection: (unitId: string) => `/api/fleet/units/${id(unitId)}/projection`,
     unit: (unitId: string) => `/api/fleet/units/${id(unitId)}`,
     capacity: '/api/fleet/capacity',
     legacyCapacity: '/fleet/capacity',
