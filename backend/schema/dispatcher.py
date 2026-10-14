@@ -8,6 +8,7 @@ from schema.evaluation import Evaluation
 from schema.dispatch_action import DispatchAction
 from schema.assignment import Assignment
 from schema.historical_shipment import HistoricalShipment
+from schema.simulation_clock import SimulationClock
 
 __all__ = [
     'Base',
@@ -18,4 +19,5 @@ __all__ = [
     'DispatchAction',
     'Assignment',
     'HistoricalShipment',
+    'SimulationClock',
 ]
