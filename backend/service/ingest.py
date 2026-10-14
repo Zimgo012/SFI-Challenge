@@ -17,18 +17,65 @@ from service.database import get_engine
 logger = logging.getLogger(__name__)
 
 
-def upsert(session: Session, model, key: str, values: dict) -> None:
+def upsert(
+    session: Session, model, key: str, values: dict, *, insert_only: bool = False,
+) -> None:
     """Preserve local primary keys while updating the board-owned fields."""
     dialect = session.get_bind().dialect.name
     insert = {'sqlite': sqlite_insert, 'postgresql': postgres_insert}.get(dialect)
     if insert is None:
         raise ValueError(f'Board ingestion does not support database dialect {dialect}')
     statement = insert(model).values(**values)
-    statement = statement.on_conflict_do_update(
-        index_elements=[key],
-        set_={name: getattr(statement.excluded, name) for name in values if name != key},
-    )
+    if insert_only:
+        statement = statement.on_conflict_do_nothing(index_elements=[key])
+    else:
+        statement = statement.on_conflict_do_update(
+            index_elements=[key],
+            set_={name: getattr(statement.excluded, name) for name in values if name != key},
+        )
     session.execute(statement)
+
+
+def upsert_orders(
+    session: Session, orders: list[BoardOrder], synced_at: datetime,
+    *, created_only: bool = False,
+) -> None:
+    terminals_by_code = {
+        row.code.upper(): row.terminal_id for row in session.scalars(select(Terminal))
+    }
+    for order in orders:
+        values = order.model_dump(
+            exclude={'id', 'created_at', 'assigned_driver_id'}, exclude_unset=True,
+        )
+        values.update(board_order_id=order.id, last_synced_at=synced_at)
+        if 'created_at' in order.model_fields_set:
+            values['board_created_at'] = order.created_at
+        if 'assigned_driver_id' in order.model_fields_set:
+            values['board_assigned_unit_id'] = order.assigned_driver_id
+        for side in ('origin', 'destination'):
+            code = getattr(order, f'{side}_terminal_code')
+            if f'{side}_terminal_code' in order.model_fields_set:
+                values[f'{side}_terminal_id'] = terminals_by_code.get((code or '').upper())
+        upsert(session, Shipment, 'external_id', values, insert_only=created_only)
+
+
+def persist_orders(
+    engine: Engine, orders: list[BoardOrder], clock: BoardClock | None = None,
+    *, created_only: bool = False,
+) -> None:
+    synced_at = datetime.now(timezone.utc)
+    with Session(engine) as session, session.begin():
+        upsert_orders(session, orders, synced_at, created_only=created_only)
+        if clock is not None:
+            stored_clock = session.get(SimulationClock, 1)
+            previous_wall_time = (
+                stored_clock.wall_time_utc.replace(tzinfo=timezone.utc)
+                if stored_clock is not None else None
+            )
+            if previous_wall_time is None or clock.wall_time_utc >= previous_wall_time:
+                upsert(session, SimulationClock, 'clock_id', {
+                    'clock_id': 1, **clock.model_dump(), 'last_synced_at': synced_at,
+                })
 
 
 def persist_snapshot(
@@ -52,7 +99,6 @@ def persist_snapshot(
 
         terminal_rows = session.scalars(select(Terminal)).all()
         terminals_by_board_id = {row.board_terminal_id: row.terminal_id for row in terminal_rows}
-        terminals_by_code = {row.code.upper(): row.terminal_id for row in terminal_rows}
 
         for snapshot in fleet:
             for unit in snapshot.units:
@@ -67,20 +113,7 @@ def persist_snapshot(
                 )
                 upsert(session, FleetUnit, 'board_unit_id', values)
 
-        for order in orders:
-            values = order.model_dump(
-                exclude={'id', 'created_at', 'assigned_driver_id'}, exclude_unset=True,
-            )
-            values.update(board_order_id=order.id, last_synced_at=synced_at)
-            if 'created_at' in order.model_fields_set:
-                values['board_created_at'] = order.created_at
-            if 'assigned_driver_id' in order.model_fields_set:
-                values['board_assigned_unit_id'] = order.assigned_driver_id
-            for side in ('origin', 'destination'):
-                code = getattr(order, f'{side}_terminal_code')
-                if f'{side}_terminal_code' in order.model_fields_set:
-                    values[f'{side}_terminal_id'] = terminals_by_code.get((code or '').upper())
-            upsert(session, Shipment, 'external_id', values)
+        upsert_orders(session, orders, synced_at)
 
         upsert(session, SimulationClock, 'clock_id', {
             'clock_id': 1,
@@ -94,7 +127,7 @@ async def ingest(
     *,
     engine: Engine | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
-) -> None:
+) -> list[BoardOrder]:
     """Fetch and validate board state, then atomically upsert it locally."""
     async with httpx.AsyncClient(
         base_url=external_api_url.rstrip('/') + '/', timeout=20.0, transport=transport,
@@ -122,3 +155,4 @@ async def ingest(
         len(terminals), sum(len(snapshot.units) for snapshot in fleet), len(orders),
         clock.sim_time_utc.isoformat(),
     )
+    return orders
