@@ -461,6 +461,29 @@ export interface DispatchRejection {
   context: Record<string, unknown>
 }
 
+export interface DispatchUnitRejection {
+  unit_id: string
+  board_unit_id: number
+  unit_number: string
+  primary_rejection: DispatchRejection
+  rejection_reasons: string[]
+  distance_miles: DecimalString | null
+  available_at_pickup: boolean
+  conflicting_assignments: Array<{
+    assignment_id: string
+    shipment_id: string
+    busy_from: string
+    busy_until: string
+    assignment_status: string
+  }>
+  conflicting_reservations: Array<{
+    action_id: string
+    busy_from: string
+    busy_until: string
+    request_status: string
+  }>
+}
+
 export interface DispatchEvaluation {
   external_id: string
   candidate_unit_id: string | null
@@ -471,6 +494,8 @@ export interface DispatchEvaluation {
   skipped_checks: Array<string>
   rejection_reasons: Array<string>
   rejection_details: Array<DispatchRejection>
+  primary_rejection: DispatchRejection | null
+  unit_rejections: DispatchUnitRejection[]
   capacity_warnings: Array<Record<string, unknown>>
   capacity_units_for_window: number
   economics: ExpectedEconomics

@@ -116,10 +116,11 @@ export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmi
       {economics && <p className="flex justify-between gap-2 text-xs text-base-content/65"><span>Minimum profitable bid</span><strong className="text-base-content">{amount(economics.minimum_profitable_bid)}</strong></p>}
       {loading && <p role="status" className="flex items-center gap-2 text-sm text-base-content/65"><span className="loading loading-spinner loading-xs" />Evaluating current costs and eligibility…</p>}
       {error && <p role="alert" className="text-sm text-error">{error}</p>}
-      {(report ?? baseReport) && !selected && <p className="text-sm text-warning">No recommended unit is available for this evaluation. A bid cannot be submitted until the dispatch checks pass.</p>}
+      {(report ?? baseReport) && !selected && <p className="text-sm text-warning">{(report ?? baseReport)?.dispatch_evaluation?.primary_rejection?.message ?? 'No recommended unit is available for this evaluation. A bid cannot be submitted until the dispatch checks pass.'}</p>}
         <section aria-label="Bid eligibility" className="space-y-2 rounded-lg border border-base-300 bg-base-100 p-3">
       {evaluation && <div className="space-y-2 text-[11px]">
         <p className={ready ? 'font-semibold text-success' : 'font-semibold text-warning'}>{ready ? 'Eligible for bid submission' : 'Eligibility checks'}</p>
+        {!ready && evaluation.primary_rejection?.message && <p className="text-warning">{evaluation.primary_rejection.message}</p>}
         <ul className="grid grid-cols-2 gap-x-3 gap-y-1.5">
           {Object.entries(evaluation.checks).map(([check, passed]) => {
             const skipped = evaluation.skipped_checks.includes(check)
@@ -137,6 +138,7 @@ export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmi
           <div className="mt-2 space-y-2">
         {!evaluation.policy.enforce_margin && <p className="text-base-content/65">The backend’s profit-margin guard is disabled. Profit targets are informational.</p>}
         {evaluation.rejection_details.map((reason, index) => <p key={index} className="text-warning">{reason.message} {reason.suggested_action}</p>)}
+        {!!evaluation.unit_rejections?.length && <div className="space-y-2"><p className="font-medium">Per-truck reasons</p>{evaluation.unit_rejections.map((unit) => <p key={unit.unit_id} className="text-warning">Truck {unit.unit_number}: {unit.primary_rejection.message} {unit.primary_rejection.suggested_action}</p>)}</div>}
         {evaluation.capacity_warnings.length > 0 && <p className="text-warning">The evaluation includes {evaluation.capacity_warnings.length} capacity warning(s). Review available fleet capacity.</p>}
       {(report ?? baseReport)?.rejection_reasons.map((reason, index) => <p key={index} className="text-xs text-warning">{readableMessage(reason)}</p>)}
       {(report ?? baseReport) && <p className="text-xs text-base-content/50">Evaluated {timestamp((report ?? baseReport)!.evaluated_at_sim)} (simulation time). The board assigns the final unit; costs and eligibility are checked again on submission.</p>}

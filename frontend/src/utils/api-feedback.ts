@@ -47,6 +47,7 @@ export function readableMessage(value: string): string {
 export function apiFeedback(payload: unknown, status: number) {
   const body = object(payload)
   const evaluation = object(body.evaluation)
+  const primary = object(evaluation.primary_rejection)
   const feedback = object(body.feedback)
   const details: string[] = []
   const suggestions: string[] = []
@@ -56,6 +57,9 @@ export function apiFeedback(payload: unknown, status: number) {
       if (!items.includes(text)) items.push(text)
     }
   }
+  // The backend determines the cause; keep it ahead of downstream check failures.
+  add(details, primary.message)
+  add(suggestions, primary.suggested_action)
   for (const value of Array.isArray(evaluation.rejection_details) ? evaluation.rejection_details : []) {
     const reason = object(value)
     add(details, reason.message)
@@ -72,6 +76,15 @@ export function apiFeedback(payload: unknown, status: number) {
     messages.forEach((message) => add(details, message))
   }
   const rejectionMessage = details[0]
+  for (const value of Array.isArray(evaluation.unit_rejections) ? evaluation.unit_rejections : []) {
+    const unit = object(value)
+    const reason = object(unit.primary_rejection)
+    if (typeof reason.message === 'string' && reason.message.trim()) {
+      const name = typeof unit.unit_number === 'string' && unit.unit_number.trim() ? `Truck ${unit.unit_number}` : 'Truck'
+      add(details, `${name}: ${reason.message}`)
+      add(suggestions, reason.suggested_action)
+    }
+  }
   for (const value of Array.isArray(evaluation.capacity_warnings) ? evaluation.capacity_warnings : []) {
     const warning = object(value)
     add(details, warning.message)
