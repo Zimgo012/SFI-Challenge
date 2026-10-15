@@ -3,6 +3,8 @@ import type { LoadView } from '../api/orders'
 import { label } from '../utils/load-format'
 import ProfitMarginAnalyzer from './ProfitMarginAnalyzer'
 import LoadInformation from './LoadInformation'
+import LoadNotification from './LoadNotification'
+import type { LoadFeedback } from '../utils/api-feedback'
 
 type LoadDetailsPanelProps = {
   load: LoadView
@@ -10,13 +12,14 @@ type LoadDetailsPanelProps = {
   canSubmit: boolean
   pending: boolean
   message: string | null
+  notification?: LoadFeedback
   onCheckStatus?: () => void
   onClose: () => void
   onSubmitBid: (bidRate: string) => Promise<void>
   onAccept: () => Promise<void>
 }
 
-export default function LoadDetailsPanel({ load, initialBidOpen, canSubmit, pending, message, onCheckStatus, onClose, onSubmitBid, onAccept }: LoadDetailsPanelProps) {
+export default function LoadDetailsPanel({ load, initialBidOpen, canSubmit, pending, message, notification, onCheckStatus, onClose, onSubmitBid, onAccept }: LoadDetailsPanelProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
@@ -52,7 +55,8 @@ export default function LoadDetailsPanel({ load, initialBidOpen, canSubmit, pend
           <button type="button" className="btn btn-ghost btn-circle btn-sm shrink-0" aria-label="Close order information" onClick={onClose}>✕</button>
         </header>
         {isOpenBid ? <>
-          {message && <div role="alert" className="alert alert-warning shrink-0 rounded-none"><p>{message}</p>{onCheckStatus && <button type="button" className="btn btn-sm btn-outline" onClick={onCheckStatus}>Check status</button>}</div>}
+          {notification && <div className="max-h-[35dvh] shrink-0 overflow-y-auto"><LoadNotification feedback={notification} onCheckStatus={onCheckStatus} /></div>}
+          {!notification && message && <div role="alert" className="alert alert-warning shrink-0 rounded-none"><p>{message}</p>{onCheckStatus && <button type="button" className="btn btn-sm btn-outline" onClick={onCheckStatus}>Check status</button>}</div>}
           <ProfitMarginAnalyzer load={load} canSubmit={canSubmit} pending={pending} onSubmitBid={onSubmitBid} orderInformation={<LoadInformation load={load} />} initialTab={initialBidOpen ? 'economics' : 'order'} />
         </> : <div className="min-h-0 flex-1 space-y-7 overflow-y-auto p-6">
           <div className="flex flex-wrap gap-2">
@@ -60,7 +64,8 @@ export default function LoadDetailsPanel({ load, initialBidOpen, canSubmit, pend
             <span className="badge badge-soft capitalize">{label(load.status)}</span>
           </div>
 
-          {message && <div role="alert" className="alert alert-warning"><p>{message}</p>{onCheckStatus && <button type="button" className="btn btn-sm btn-outline" onClick={onCheckStatus}>Check status</button>}</div>}
+          {notification && <div className="max-h-[35dvh] shrink-0 overflow-y-auto"><LoadNotification feedback={notification} onCheckStatus={onCheckStatus} /></div>}
+          {!notification && message && <div role="alert" className="alert alert-warning"><p>{message}</p>{onCheckStatus && <button type="button" className="btn btn-sm btn-outline" onClick={onCheckStatus}>Check status</button>}</div>}
 
           <button type="button" className="btn btn-primary w-full" disabled={!canSubmit || pending} onClick={() => void onAccept()}>{pending ? 'Accepting…' : 'Accept fixed-rate offer'}</button>
 

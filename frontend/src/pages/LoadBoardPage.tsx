@@ -6,6 +6,9 @@ import EmptyPanel from '../components/EmptyPanel'
 import LoadCard from '../components/LoadCard'
 import LoadDetailsPanel from '../components/LoadDetailsPanel'
 import PageSection from '../components/PageSection'
+import LoadNotification from '../components/LoadNotification'
+import type { LoadFeedback } from '../utils/api-feedback'
+import { amount } from '../utils/load-format'
 
 const initialState: LiveLoadsState = {
   loads: null,
@@ -21,7 +24,7 @@ export default function LoadBoardPage() {
   const [selected, setSelected] = useState<{ load: LoadView; bid: boolean } | null>(null)
   const [decisions, setDecisions] = useState<Record<string, 'submitting' | 'sent' | 'uncertain'>>({})
   const lockedOrders = useRef(new Set<string>())
-  const [feedback, setFeedback] = useState<{ id: string; message: string; error: boolean } | null>(null)
+  const [feedback, setFeedback] = useState<LoadFeedback | null>(null)
   const selectedLoad = selected ? streamedLoads?.find((load) => load.external_id === selected.load.external_id) ?? selected.load : null
 
   function canSubmit(load: LoadView) {
@@ -43,7 +46,12 @@ export default function LoadBoardPage() {
       const result = await submitLoadDecision(id, decision, bidRate)
       setDecisions((current) => ({ ...current, [id]: 'sent' }))
       setStream((current) => ({ ...current, loads: current.loads?.map((item) => item.external_id === id ? result.order : item) ?? null }))
-      setFeedback({ id, error: false, message: `${id}: ${decision === 'bid' ? 'Bid submitted' : decision === 'accept' ? 'Order accepted' : 'Order declined'}.${result.sync_pending ? ' Fleet sync is pending.' : ''}` })
+      setFeedback({
+        id,
+        title: decision === 'bid' ? 'Bid submitted' : decision === 'accept' ? 'Offer accepted' : 'Offer declined',
+        tone: result.sync_pending ? 'warning' : 'success',
+        message: `${decision === 'bid' ? `Your ${amount(bidRate ?? null)} bid was submitted. Track the outcome in Bid Logs; a booking is confirmed only if you win.` : decision === 'accept' ? 'Your acceptance was recorded. Follow this booking in Shipments.' : 'This offer was declined and has been removed from your open opportunities.'}${result.sync_pending ? ' Fleet availability is still updating.' : ''}`,
+      })
       setSelected(null)
     } catch (cause) {
       const uncertain = !(cause instanceof LoadDecisionError) || cause.uncertain
@@ -57,7 +65,14 @@ export default function LoadBoardPage() {
           return next
         })
       }
-      setFeedback({ id, error: true, message: `${id}: ${cause instanceof Error ? cause.message : 'Unable to verify the submission.'}` })
+      setFeedback({
+        id,
+        title: uncertain ? 'Submission not confirmed' : decision === 'bid' ? 'Bid could not be submitted' : decision === 'accept' ? 'Offer could not be accepted' : 'Offer could not be declined',
+        tone: uncertain ? 'warning' : 'error',
+        message: cause instanceof Error ? cause.message : 'We could not confirm the request. Check the order status before trying again.',
+        details: cause instanceof LoadDecisionError ? cause.details : [],
+        suggestions: cause instanceof LoadDecisionError ? cause.suggestions : [],
+      })
     }
   }
 
@@ -67,7 +82,8 @@ export default function LoadBoardPage() {
       if (!response.ok) throw new Error('Unable to check the order status. Please try again.')
       const detail: LoadDetail = await response.json()
       const unresolved = detail.actions.some((action) => action.request_status === 'unknown' || action.request_status === 'submitting')
-      if (!unresolved && detail.status === 'open' && detail.actions.length > 0 && detail.actions.every((action) => action.request_status === 'failed')) {
+      const confirmedFailure = !unresolved && detail.status === 'open' && detail.actions.length > 0 && detail.actions.every((action) => action.request_status === 'failed')
+      if (confirmedFailure) {
         lockedOrders.current.delete(id)
         setDecisions((current) => {
           const next = { ...current }
@@ -76,9 +92,24 @@ export default function LoadBoardPage() {
         })
       }
       setStream((current) => ({ ...current, loads: current.loads?.map((item) => item.external_id === id ? detail : item) ?? null }))
-      setFeedback({ id, error: unresolved, message: unresolved ? `${id}: Submission is still awaiting reconciliation.` : `${id}: Current order status is ${detail.status.replaceAll('_', ' ')}.` })
+      const statusMessages: Record<string, string> = {
+        accepted: 'This order is confirmed. Follow its progress in Shipments.',
+        in_transit: 'This shipment is on the way. Follow its progress in Shipments.',
+        completed: 'This shipment has been delivered.',
+        bid_submitted: 'Your bid is recorded and awaiting an outcome. Track it in Bid Logs.',
+        bid_lost: 'Your bid was not selected. You can review it in Bid Logs.',
+        declined: 'This offer was declined.',
+        expired: 'This offer has expired. Choose another open opportunity.',
+      }
+      if (!unresolved && detail.status !== 'open') setDecisions((current) => ({ ...current, [id]: 'sent' }))
+      setFeedback({
+        id,
+        title: unresolved ? 'Submission still pending' : confirmedFailure ? 'Order available again' : 'Order status updated',
+        tone: unresolved || (detail.status === 'open' && !confirmedFailure) ? 'warning' : 'info',
+        message: unresolved ? 'The service is still confirming your previous submission. Wait for a confirmed outcome before trying again.' : confirmedFailure ? 'The previous submission failed and this offer is still open. Review its current eligibility before trying again.' : statusMessages[detail.status] ?? (detail.status === 'open' ? 'The offer is still open, but the previous submission has not been verified. Keep checking its status before trying again.' : 'The latest order status has been received. Review its details before continuing.'),
+      })
     } catch (cause) {
-      setFeedback({ id, error: true, message: cause instanceof Error ? cause.message : 'Unable to check the order status.' })
+      setFeedback({ id, title: 'Status check unavailable', tone: 'warning', message: cause instanceof Error ? cause.message : 'We could not read the current order status. Please try checking again.' })
     }
   }
 
@@ -111,10 +142,9 @@ export default function LoadBoardPage() {
         </div>
       )}
 
-      {feedback && (
-        <div role={feedback.error ? 'alert' : 'status'} className={`alert ${feedback.error ? 'alert-warning' : 'alert-success'}`}>
-          <p>{feedback.message}</p>
-          {decisions[feedback.id] === 'uncertain' && <button type="button" className="btn btn-sm btn-outline" onClick={() => void checkStatus(feedback.id)}>Check status</button>}
+      {feedback && !selected && (
+        <div className="fixed inset-x-4 top-24 z-30 mx-auto max-h-[60dvh] max-w-lg overflow-y-auto rounded-xl shadow-xl sm:right-6 sm:left-auto">
+          <LoadNotification feedback={feedback} onDismiss={() => setFeedback(null)} onCheckStatus={decisions[feedback.id] === 'uncertain' ? () => void checkStatus(feedback.id) : undefined} />
         </div>
       )}
 
@@ -159,7 +189,8 @@ export default function LoadBoardPage() {
           initialBidOpen={selected.bid}
           canSubmit={canSubmit(selectedLoad)}
           pending={decisions[selectedLoad.external_id] === 'submitting'}
-          message={feedback?.id === selectedLoad.external_id ? feedback.message : null}
+          message={null}
+          notification={feedback?.id === selectedLoad.external_id ? feedback : undefined}
           onCheckStatus={decisions[selectedLoad.external_id] === 'uncertain' ? () => void checkStatus(selectedLoad.external_id) : undefined}
           onClose={() => setSelected(null)}
           onSubmitBid={(rate) => decide(selectedLoad, 'bid', rate)}

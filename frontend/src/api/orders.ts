@@ -3,6 +3,7 @@ import { env } from '../config/env'
 import { endpoints } from './endpoints'
 import type { CostPreviewRequest, ActionRequest, ActionResult, BidRequest, LoadStreamEvent, LoadView, PaginationParams, SystemStatus } from './types'
 import { isValidBidAmount } from '../utils/bid-amount'
+import { apiFeedback } from '../utils/api-feedback'
 
 export type OrderType = 'fixed_rate' | 'open_bid'
 export type LoadStatus = 'open' | 'accepted' | 'declined' | 'bid_submitted' | 'bid_lost' | 'in_transit' | 'completed' | 'expired'
@@ -159,7 +160,7 @@ export function subscribeLoads(
       try {
         const message: LoadStreamEvent = JSON.parse(event.data)
         if (message.event === 'loads.error') {
-          error = message.message
+          error = 'Live order updates are temporarily unavailable. Reconnecting automatically…'
           currentSocket.close()
           return
         }
@@ -202,11 +203,15 @@ export function subscribeLoads(
 
 export class LoadDecisionError extends Error {
   readonly uncertain: boolean
+  readonly details: string[]
+  readonly suggestions: string[]
 
-  constructor(message: string, uncertain: boolean) {
+  constructor(message: string, uncertain: boolean, feedback?: { details: string[]; suggestions: string[] }) {
     super(message)
     this.name = 'LoadDecisionError'
     this.uncertain = uncertain
+    this.details = feedback?.details ?? []
+    this.suggestions = feedback?.suggestions ?? []
   }
 }
 
@@ -225,18 +230,18 @@ export async function submitLoadDecision(
       ? await bidOnLoad(externalId, { bid_rate: bidRate as string })
       : decision === 'accept' ? await acceptLoad(externalId) : await declineLoad(externalId)
   } catch {
-    throw new LoadDecisionError('The submission outcome is unknown. Wait for reconciliation before trying again.', true)
+    throw new LoadDecisionError('The connection was interrupted, so we could not confirm your submission. Check the order status before submitting again.', true)
   }
 
   const body = await response.json().catch(() => null)
   if (!response.ok) {
-    const message = typeof body?.detail === 'string'
-      ? body.detail
-      : `The request could not be completed (HTTP ${response.status}).`
-    throw new LoadDecisionError(message, response.status >= 500 || response.status === 409)
+    const feedback = apiFeedback(body, response.status)
+    const rejectedLocally = body?.evaluation?.eligible === false
+    const rejectedByBoard = body?.feedback?.state_refreshed === true && body?.feedback?.action_result?.action?.request_status === 'failed'
+    throw new LoadDecisionError(feedback.message, response.status >= 500 || (response.status === 409 && !rejectedLocally && !rejectedByBoard), feedback)
   }
   if (!body?.order || !body?.action || typeof body.sync_pending !== 'boolean') {
-    throw new LoadDecisionError('The submission could not be verified. Wait for reconciliation before trying again.', true)
+    throw new LoadDecisionError('We received an incomplete response and could not confirm your submission. Check the order status before trying again.', true)
   }
   return body as ActionResult
 }

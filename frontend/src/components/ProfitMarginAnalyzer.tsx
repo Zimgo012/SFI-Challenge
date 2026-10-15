@@ -4,6 +4,7 @@ import { getCostPreview } from '../api/orders'
 import type { LoadView, OrderRecommendations } from '../api/orders'
 import { amount, label, quantity, timestamp } from '../utils/load-format'
 import { bidForMargin, marginForBid, normalizeBid, validMargin } from '../utils/profit-margin'
+import { apiFeedback, readableMessage } from '../utils/api-feedback'
 
 type Preview = { key: string; report?: OrderRecommendations; error?: string }
 type Props = { load: LoadView; canSubmit: boolean; pending: boolean; onSubmitBid: (rate: string) => Promise<void>; orderInformation: ReactNode; initialTab?: 'economics' | 'order' }
@@ -21,8 +22,12 @@ const checkNames: Record<string, string> = {
 
 async function preview(loadId: string, bid: string | null, signal: AbortSignal): Promise<OrderRecommendations> {
   const response = await getCostPreview(loadId, bid ? { bid_rate: bid } : {}, { signal })
-  const body = await response.json()
-  if (!response.ok) throw new Error(typeof body?.detail === 'string' ? body.detail : `Unable to evaluate profit (HTTP ${response.status}).`)
+  const body = await response.json().catch(() => null)
+  if (!response.ok) {
+    const feedback = apiFeedback(body, response.status)
+    throw new Error([...(feedback.details.length ? feedback.details : [feedback.message]), ...feedback.suggestions].join(' '))
+  }
+  if (!body) throw new Error('The profit preview could not be read. Refresh the analysis to try again.')
   if (body.external_id !== loadId || !Array.isArray(body.ranked_units)) throw new Error('The profit preview could not be verified.')
   return body
 }
@@ -57,7 +62,7 @@ export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmi
     const controller = new AbortController()
     void preview(loadId, null, controller.signal).then(
       (report) => { if (!controller.signal.aborted) setBase({ key: baseKey, report }) },
-      (error: unknown) => { if (!controller.signal.aborted) setBase({ key: baseKey, error: error instanceof Error ? error.message : 'Unable to evaluate profit.' }) },
+      (error: unknown) => { if (!controller.signal.aborted) setBase({ key: baseKey, error: error instanceof TypeError ? 'Unable to connect to the profit analyzer. Check your connection and refresh the analysis.' : error instanceof Error ? error.message : 'Unable to evaluate profit.' }) },
     )
     return () => controller.abort()
   }, [loadId, baseKey])
@@ -68,7 +73,7 @@ export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmi
     const timer = setTimeout(() => {
       void preview(loadId, proposedBid, controller.signal).then(
         (report) => { if (!controller.signal.aborted) setQuote({ key: quoteKey, report }) },
-        (error: unknown) => { if (!controller.signal.aborted) setQuote({ key: quoteKey, error: error instanceof Error ? error.message : 'Unable to evaluate this bid.' }) },
+        (error: unknown) => { if (!controller.signal.aborted) setQuote({ key: quoteKey, error: error instanceof TypeError ? 'Unable to connect to the profit analyzer. Check your connection and refresh the analysis.' : error instanceof Error ? error.message : 'Unable to evaluate this bid.' }) },
       )
     }, 350)
     return () => { clearTimeout(timer); controller.abort() }
@@ -133,7 +138,7 @@ export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmi
         {!evaluation.policy.enforce_margin && <p className="text-base-content/65">The backend’s profit-margin guard is disabled. Profit targets are informational.</p>}
         {evaluation.rejection_details.map((reason, index) => <p key={index} className="text-warning">{reason.message} {reason.suggested_action}</p>)}
         {evaluation.capacity_warnings.length > 0 && <p className="text-warning">The evaluation includes {evaluation.capacity_warnings.length} capacity warning(s). Review available fleet capacity.</p>}
-      {(report ?? baseReport)?.rejection_reasons.map((reason, index) => <p key={index} className="text-xs text-warning">{label(reason)}</p>)}
+      {(report ?? baseReport)?.rejection_reasons.map((reason, index) => <p key={index} className="text-xs text-warning">{readableMessage(reason)}</p>)}
       {(report ?? baseReport) && <p className="text-xs text-base-content/50">Evaluated {timestamp((report ?? baseReport)!.evaluated_at_sim)} (simulation time). The board assigns the final unit; costs and eligibility are checked again on submission.</p>}
           </div>
         </details>
