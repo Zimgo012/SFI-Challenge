@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getFleetUnit } from '../api/fleet'
 import type { UnitDetail, UnitProjection, UnitView } from '../api/fleet'
 import { deliveryPhase } from '../utils/fleet'
@@ -10,10 +10,23 @@ type FleetScheduleProps = {
   projection: UnitProjection | undefined
   simTime: string | null
   revision: number
+  onClose: () => void
 }
 
-export default function FleetSchedule({ unit, projection, simTime, revision }: FleetScheduleProps) {
+export default function FleetSchedule({ unit, projection, simTime, revision, onClose }: FleetScheduleProps) {
+  const dialogRef = useRef<HTMLDialogElement>(null)
   const [result, setResult] = useState<{ id: string; revision: number; detail: UnitDetail | null; error: string | null } | null>(null)
+
+  useEffect(() => {
+    const dialog = dialogRef.current
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    dialog?.showModal()
+    return () => {
+      dialog?.close()
+      document.body.style.overflow = previousOverflow
+    }
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -36,15 +49,29 @@ export default function FleetSchedule({ unit, projection, simTime, revision }: F
   const deliveries = [...(projection?.deliveries ?? [])].sort((a, b) => Date.parse(a.pickup_at) - Date.parse(b.pickup_at))
 
   return (
-    <section id="unit-schedule" aria-labelledby="unit-schedule-title" className="scroll-mt-6 rounded-xl border border-base-300 bg-base-100">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
+    <dialog
+      ref={dialogRef}
+      id="unit-schedule"
+      aria-labelledby="unit-schedule-title"
+      className="m-auto max-h-[90dvh] w-[calc(100%_-_2rem)] max-w-5xl overflow-hidden rounded-2xl border border-base-300 bg-base-100 p-0 text-base-content shadow-2xl backdrop:bg-black/40"
+      onCancel={(event) => { event.preventDefault(); onClose() }}
+      onClick={(event) => {
+        const bounds = event.currentTarget.getBoundingClientRect()
+        if (event.target === event.currentTarget && (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom)) onClose()
+      }}
+    >
+    <div className="flex max-h-[90dvh] flex-col">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-base-300 p-5">
         <div>
           <h2 id="unit-schedule-title" className="text-lg font-semibold">Unit {unit.unit_number} · Schedule</h2>
           <p className="mt-1 text-sm text-base-content/60">{unit.first_name} {unit.last_name} · {unit.employee_code}</p>
         </div>
-        <span className="badge badge-soft badge-primary capitalize">{label(unit.status)}</span>
+        <div className="flex items-center gap-3">
+          <span className="badge badge-soft badge-primary capitalize">{label(unit.status)}</span>
+          <button type="button" className="btn btn-ghost btn-circle btn-sm" aria-label="Close unit schedule" onClick={onClose}>✕</button>
+        </div>
       </div>
-      <div className="grid gap-7 p-5 lg:grid-cols-[1fr_1.3fr]">
+      <div className="grid min-h-0 gap-7 overflow-y-auto p-5 lg:grid-cols-[1fr_1.3fr]">
         <div className="space-y-5">
           <dl className="grid grid-cols-2 gap-4">
             <Field title="Home hub">{unit.terminal_code}</Field>
@@ -111,6 +138,8 @@ export default function FleetSchedule({ unit, projection, simTime, revision }: F
           )}
         </div>
       </div>
-    </section>
+      <footer className="flex shrink-0 justify-end border-t border-base-300 p-4"><button type="button" className="btn btn-primary btn-sm" onClick={onClose}>Close</button></footer>
+    </div>
+    </dialog>
   )
 }

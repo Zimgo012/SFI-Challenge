@@ -40,9 +40,10 @@ Connections and retry timers are cleaned up when leaving the page.
 Fleet & Schedule loads the complete paginated fleet roster, simulation status,
 and `/api/fleet/projections?at=<simulation-time>`. It shows availability counts,
 unit/driver search, hub/status filters, and a roster with 20 units per page.
-View schedule selects a unit and displays its confirmed assignment, projected
+View schedule opens a centered, scrollable dialog with the unit's confirmed assignment, projected
 availability, current/next hubs, coordinates, and a chronological delivery
-timeline. Timeline phases use simulation time, with unknown timestamps and
+timeline. The dialog supports close buttons, Escape and backdrop dismissal,
+and continues receiving live updates while open. Timeline phases use simulation time, with unknown timestamps and
 unresolved submissions shown explicitly. The projection schema exposes bookings
 since the latest fleet snapshot, rather than a complete assignment archive.
 

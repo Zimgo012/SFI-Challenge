@@ -26,6 +26,8 @@ export default function FleetPage() {
       const current = filters.current
       const count = filterFleet(state.data.units, current.search, current.terminal, current.status).length
       setPage((value) => Math.min(value, Math.max(1, Math.ceil(count / pageSize))))
+      const activeUnits = state.data.units
+      setSelectedId((current) => current && activeUnits.some((unit) => unit.unit_id === current) ? current : null)
     }
   }), [])
 
@@ -35,7 +37,7 @@ export default function FleetPage() {
   const currentPage = Math.min(page, totalPages)
   const offset = (currentPage - 1) * pageSize
   const pageUnits = visibleUnits.slice(offset, offset + pageSize)
-  const selectedUnit = visibleUnits.find((unit) => unit.unit_id === selectedId) ?? visibleUnits[0]
+  const selectedUnit = units.find((unit) => unit.unit_id === selectedId)
   const projections = new Map(data?.projections.map((projection) => [projection.unit_id, projection]))
   const terminals = [...new Set(units.map((unit) => unit.terminal_code).filter((code): code is string => !!code))].sort()
   const statuses = [...new Set(units.map((unit) => unit.status))].sort()
@@ -97,10 +99,7 @@ export default function FleetPage() {
                         {timestamp(projection ? projection.available_at : unit.available_at)}
                         {projection?.status === 'unknown' && <p className="mt-1 text-base-content/60">Availability unknown</p>}
                       </td>
-                      <td><button type="button" className="btn btn-ghost btn-xs whitespace-nowrap text-primary" aria-controls="unit-schedule" aria-pressed={selectedUnit?.unit_id === unit.unit_id} onClick={() => {
-                        setSelectedId(unit.unit_id)
-                        document.getElementById('unit-schedule')?.scrollIntoView({ block: 'start' })
-                      }}>View schedule</button></td>
+                      <td><button type="button" className="btn btn-ghost btn-xs whitespace-nowrap text-primary" aria-controls="unit-schedule" aria-haspopup="dialog" aria-label={`View schedule for unit ${unit.unit_number}`} onClick={() => setSelectedId(unit.unit_id)}>View schedule</button></td>
                     </tr>
                   )
                 })}</tbody>
@@ -119,7 +118,7 @@ export default function FleetPage() {
           </div>
         )}
       </div>
-      {selectedUnit && data && <FleetSchedule unit={selectedUnit} projection={projections.get(selectedUnit.unit_id)} simTime={data.system.sim_time_utc} revision={revision} />}
+      {selectedUnit && data && <FleetSchedule key={selectedUnit.unit_id} unit={selectedUnit} projection={projections.get(selectedUnit.unit_id)} simTime={data.system.sim_time_utc} revision={revision} onClose={() => setSelectedId(null)} />}
     </PageSection>
   )
 }
