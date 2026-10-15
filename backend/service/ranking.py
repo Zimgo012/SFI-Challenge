@@ -22,7 +22,7 @@ from service.dispatch_policy import evaluate_dispatch
 from service.dispatch_feedback import rejection_detail
 from service.economics import expected_economics
 from service.expiration import simulated_now, utc
-from service.geography import nearest_terminal, pickup_distance_miles
+from service.geography import nearest_terminal
 from service.pickup_routing import evaluate_pickup_routing
 
 ZERO = Decimal('0')
@@ -129,8 +129,7 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
             report.rejected_units.append(RejectedUnit(unit_id=projection.unit_id, rejection_reasons=item.rejection_reasons))
             continue
         unit = context.units[projection.unit_id]
-        miles = pickup_distance_miles(projection.latitude, projection.longitude,
-                                      shipment.origin_latitude, shipment.origin_longitude)
+        miles = item.projected_deadhead_miles
         maximum = routing.policy.max_pickup_move_miles
         empty_score = max(ZERO, ONE - miles / maximum) if maximum else ONE
         previous = next(((assignment, order) for assignment, order in reversed(context.bookings[unit.unit_id])

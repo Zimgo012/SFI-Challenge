@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from schema.scheduling import ReservationConflict, ScheduleConflict
-from schema.unit_projection import ChainingUnit
+from schema.unit_projection import ChainingUnit, UnitProjection
 
 
 class PickupRoutingPolicy(BaseModel):
@@ -19,6 +19,8 @@ class PickupUnitRoute(BaseModel):
     board_unit_id: int
     unit_number: str
     distance_miles: Decimal | None
+    projection: UnitProjection | None = None
+    board_selection_distance_miles: Decimal | None = None
     within_move_limit: bool
     available_at_pickup: bool
     schedule_passed: bool

@@ -47,6 +47,14 @@ def project_units(session: Session, units: list[FleetUnit], at: datetime | None 
     ).order_by(Assignment.busy_from, Assignment.assignment_id)).all()
     for assignment, shipment in rows:
         bookings[assignment.unit_id].append((assignment, shipment))
+    trusted_ids = {assignment.assignment_id for assignment, _ in rows}
+    unverified = {unit.unit_id: [] for unit in units}
+    for assignment in session.scalars(select(Assignment).where(
+        Assignment.unit_id.in_(unverified),
+        Assignment.assignment_status.in_(ACTIVE_ASSIGNMENT_STATUSES),
+    ).order_by(Assignment.busy_from, Assignment.assignment_id)):
+        if assignment.assignment_id not in trusted_ids:
+            unverified[assignment.unit_id].append(assignment)
     results = []
     for unit in units:
         capacity = capacities.get(unit.home_terminal_id)
@@ -134,6 +142,14 @@ def project_units(session: Session, units: list[FleetUnit], at: datetime | None 
         if projection.status == 'available' and (projection.terminal_id is None or not valid_coordinates(projection.latitude, projection.longitude)):
             projection.status = 'unknown'
             projection.rejection_reasons.append('projected_destination_unknown')
+        projection.unverified_assignment_ids = [assignment.assignment_id for assignment in unverified[unit.unit_id]
+                                               if baseline < utc(assignment.busy_until) <= projection.at]
+        if projection.unverified_assignment_ids:
+            projection.status = 'unknown'
+            projection.source = 'unknown'
+            projection.latitude = projection.longitude = None
+            projection.terminal_id = projection.terminal_code = None
+            projection.rejection_reasons.append('prior_assignment_destination_unverified')
         projection.uncertain_action_ids = [hold.action_id for hold in holds[unit.unit_id] if utc(hold.busy_from) <= projection.at]
         if projection.uncertain_action_ids:
             projection.status = 'unknown'

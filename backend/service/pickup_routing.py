@@ -85,7 +85,8 @@ def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouti
     reservations = reservation_conflicts(
         session, [unit.unit_id for unit in units], shipment.pickup_at, shipment.delivery_at,
     )
-    raw_distances = {}
+    board_distances = {}
+    planned_units = {item.projection.unit_id: item for item in result.chaining_units}
     for unit in units:
         available = unit.status not in ('maintenance', 'off_duty') and (
             unit.status == 'available'
@@ -98,26 +99,31 @@ def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouti
         if reservations[unit.unit_id]:
             schedule_reasons.append('assignment_window_reserved')
         reasons.extend(schedule_reasons)
-        distance = None
-        within_limit = False
+        # Current coordinates predict the board selection only. The shared
+        # pickup-time projection owns every local distance/cost/arrival check.
+        planned = planned_units[unit.unit_id]
+        distance = planned.projected_deadhead_miles
+        within_limit = distance is not None and distance <= result.policy.max_pickup_move_miles
+        if distance is not None and not within_limit:
+            reasons.append('pickup_move_exceeds_limit')
+        reasons.extend(reason for reason in planned.rejection_reasons if reason not in reasons)
+        board_distance = None
         if valid_coordinates(unit.current_latitude, unit.current_longitude):
-            distance = pickup_distance_miles(
+            board_distance = pickup_distance_miles(
                 unit.current_latitude, unit.current_longitude,
                 shipment.origin_latitude, shipment.origin_longitude,
             )
-            within_limit = distance <= result.policy.max_pickup_move_miles
-            raw_distances[unit.unit_id] = distance
-            if not within_limit:
-                reasons.append('pickup_move_exceeds_limit')
+            board_distances[unit.unit_id] = board_distance
         else:
             reasons.append('unit_coordinates_unknown_or_invalid')
         result.units.append(PickupUnitRoute(
             unit_id=unit.unit_id, board_unit_id=unit.board_unit_id,
-            unit_number=unit.unit_number,
+            unit_number=unit.unit_number, projection=planned.projection,
+            board_selection_distance_miles=board_distance.quantize(Decimal('0.001')) if board_distance is not None else None,
             distance_miles=distance.quantize(Decimal('0.001')) if distance is not None else None,
             within_move_limit=within_limit, available_at_pickup=bool(available),
             schedule_passed=not schedule_reasons,
-            eligible=bool(available) and within_limit and not schedule_reasons,
+            eligible=bool(available) and planned.eligible and not schedule_reasons and board_distance is not None,
             conflicting_assignments=conflicts[unit.unit_id],
             conflicting_reservations=reservations[unit.unit_id],
             rejection_reasons=reasons,
@@ -127,13 +133,13 @@ def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouti
         result.rejection_reasons.append('no_available_units_at_pickup_terminal')
         if result.chaining_passed:
             result.rejection_reasons.append('future_terminal_not_yet_board_selectable')
-    elif any(unit.distance_miles is None for unit in available_units):
+    elif any(unit.unit_id not in board_distances for unit in available_units):
         # The board chooses the unit; unknown positions prevent verification.
         result.rejection_reasons.append('available_unit_coordinates_unknown_or_invalid')
     else:
         # Match the board's one-decimal distance comparison and employee-order
         # tie-break; apply our maximum to unrounded miles, including ties.
-        candidate = min(available_units, key=lambda unit: round(float(raw_distances[unit.unit_id]), 1))
+        candidate = min(available_units, key=lambda unit: round(float(board_distances[unit.unit_id]), 1))
         result.routing_candidate_unit_id = candidate.unit_id
         result.schedule_passed = candidate.schedule_passed
         if not candidate.schedule_passed:
@@ -142,10 +148,9 @@ def evaluate_pickup_routing(session: Session, shipment: Shipment) -> PickupRouti
                 'unit_availability_unknown', 'assignment_window_overlap',
                 'assignment_window_reserved',
             ))
-        projected = next(item for item in result.chaining_units if item.projection.unit_id == candidate.unit_id)
-        if any(delivery.delivery_at <= result.pickup_at for delivery in projected.projection.deliveries):
-            result.rejection_reasons.extend(reason for reason in projected.rejection_reasons if reason not in result.rejection_reasons)
-        if not candidate.within_move_limit:
+        projected = planned_units[candidate.unit_id]
+        result.rejection_reasons.extend(reason for reason in projected.rejection_reasons if reason not in result.rejection_reasons)
+        if projected.projected_deadhead_miles is not None and not candidate.within_move_limit:
             result.rejection_reasons.append('pickup_move_exceeds_limit')
     result.routing_passed = not result.rejection_reasons
     return result

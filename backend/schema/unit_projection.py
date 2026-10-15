@@ -35,6 +35,7 @@ class UnitProjection(BaseModel):
     next_terminal_id: UUID | None = None
     next_terminal_code: str | None = None
     deliveries: list[ProjectedDelivery] = Field(default_factory=list)
+    unverified_assignment_ids: list[UUID] = Field(default_factory=list)
     uncertain_action_ids: list[UUID] = Field(default_factory=list)
     rejection_reasons: list[str] = Field(default_factory=list)
 
@@ -42,6 +43,7 @@ class UnitProjection(BaseModel):
 class ChainingUnit(BaseModel):
     projection: UnitProjection
     distance_miles: Decimal | None = None
+    projected_deadhead_miles: Decimal | None = None
     eligible: bool = False
     at_current_pickup_hub: bool = False
     rejection_reasons: list[str] = Field(default_factory=list)

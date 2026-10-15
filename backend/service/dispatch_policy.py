@@ -7,7 +7,6 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from schema.assignment import ACTIVE_ASSIGNMENT_STATUSES, Assignment
 from schema.dispatch_policy import DispatchEvaluation, DispatchPolicy
 from schema.evaluation import Evaluation
 from schema.fleet_capacity import FleetCapacity
@@ -19,7 +18,6 @@ from service.economics import expected_economics
 from service.dispatch_feedback import add_feedback
 from service.errors import ProductError
 from service.expiration import simulated_now, utc
-from service.geography import pickup_distance_miles, valid_coordinates
 from service.pickup_routing import evaluate_pickup_routing, routing_policy
 
 CHECKS = (
@@ -67,9 +65,7 @@ def evaluate_dispatch(session: Session, shipment: Shipment, bid_rate=None, unit_
     candidate = next((item for item in routing.units if item.unit_id == candidate_id), None)
     planned = next((item for item in routing.chaining_units if item.projection.unit_id == candidate_id), None)
     projection = planned.projection if planned else None
-    miles = None
-    if projection and valid_coordinates(projection.latitude, projection.longitude) and valid_coordinates(shipment.origin_latitude, shipment.origin_longitude):
-        miles = pickup_distance_miles(projection.latitude, projection.longitude, shipment.origin_latitude, shipment.origin_longitude)
+    miles = planned.projected_deadhead_miles if planned else None
     result = DispatchEvaluation(
         external_id=shipment.external_id, candidate_unit_id=candidate_id, evaluated_at_sim=now,
         policy=policy, checks={key: True for key in CHECKS},
@@ -118,16 +114,6 @@ def evaluate_dispatch(session: Session, shipment: Shipment, bid_rate=None, unit_
         fail('location_passed', 'projected_location_unavailable')
     if projection is None or projection.terminal_id != routing.pickup_terminal_id:
         fail('location_passed', 'projected_pickup_terminal_mismatch')
-    if projection is not None and projection.baseline_sim_time is not None and shipment.pickup_at is not None:
-        known_deliveries = {item.assignment_id for item in projection.deliveries}
-        prior_bookings = session.scalars(select(Assignment).where(
-            Assignment.unit_id == candidate_id,
-            Assignment.assignment_status.in_(ACTIVE_ASSIGNMENT_STATUSES),
-            Assignment.busy_until > projection.baseline_sim_time,
-            Assignment.busy_until <= utc(shipment.pickup_at),
-        )).all()
-        if any(item.assignment_id not in known_deliveries for item in prior_bookings):
-            fail('location_passed', 'prior_assignment_destination_unverified')
     if miles is None:
         fail('deadhead_passed', 'deadhead_distance_unknown')
     elif miles > policy.max_deadhead_miles:

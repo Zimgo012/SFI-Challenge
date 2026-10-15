@@ -28,6 +28,7 @@ def chaining_candidates(session, units, shipment, terminal, max_move):
             distance = pickup_distance_miles(projection.latitude, projection.longitude,
                                              shipment.origin_latitude, shipment.origin_longitude)
             distances[projection.unit_id] = distance
+            item.projected_deadhead_miles = distance
             item.distance_miles = distance.quantize(Decimal('0.001'))
             if distance > max_move:
                 item.rejection_reasons.append('projected_pickup_move_exceeds_limit')

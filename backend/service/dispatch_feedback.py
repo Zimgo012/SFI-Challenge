@@ -119,6 +119,7 @@ def add_feedback(result, shipment, routing, capacity, unit, reason_checks):
         'location_passed': {'projected_terminal_code': result.projection.terminal_code if result.projection else None,
                             'unit_last_synced_at': unit.last_synced_at if unit else None,
                             'max_snapshot_age_seconds': result.policy.max_fleet_snapshot_age_seconds,
+                            'unverified_assignment_ids': result.projection.unverified_assignment_ids if result.projection else [],
                             'uncertain_action_ids': result.projection.uncertain_action_ids if result.projection else []},
         'schedule_passed': {'pickup_at': shipment.pickup_at, 'delivery_at': shipment.delivery_at,
                             'conflicting_assignments': [], 'conflicting_reservations': [],
