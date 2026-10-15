@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from schema.economics import ExpectedEconomics
+from schema.occupancy import OccupiedWindow
 from schema.unit_projection import UnitProjection
 
 
@@ -17,6 +18,7 @@ class DispatchPolicy(BaseModel):
     min_pickup_lead_minutes: Decimal = Field(default=Decimal('0'), ge=0, le=10080, allow_inf_nan=False)
     pickup_buffer_minutes: Decimal = Field(default=Decimal('0'), ge=0, le=1440, allow_inf_nan=False)
     assumed_travel_speed_mph: Decimal = Field(default=Decimal('45'), ge=1, le=90, allow_inf_nan=False)
+    turnaround_minutes: Decimal = Field(default=Decimal('30'), ge=0, le=1440, allow_inf_nan=False)
     max_fleet_snapshot_age_seconds: int = Field(default=120, gt=0)
 
 
@@ -43,5 +45,6 @@ class DispatchEvaluation(BaseModel):
     economics: ExpectedEconomics
     deadhead_miles: Decimal | None = None
     margin_pct_for_policy: Decimal | None = None
+    occupied_window: OccupiedWindow | None = None
     earliest_pickup_at: datetime | None = None
     projection: UnitProjection | None = None

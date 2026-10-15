@@ -1,5 +1,7 @@
 from decimal import Context, Decimal, ROUND_HALF_UP, localcontext
 
+from schema.occupancy import OccupancyPolicy
+from service.occupancy import occupied_window, hours_between
 from schema.economics import EconomicsSource, ExpectedEconomics, MissingEconomicsInput
 
 CENT = Decimal('0.01')
@@ -24,17 +26,17 @@ def missing(result, field, code, message):
 
 
 def expected_economics(shipment, deadhead_miles: Decimal | None, bid_rate: Decimal | None = None,
-                       *, projection=None) -> ExpectedEconomics:
+                       *, projection=None, timing_policy=None, window=None) -> ExpectedEconomics:
     """Pure USD estimate with fixed Decimal arithmetic and auditable input sources.
 
     Distances are unrounded projected miles supplied by routing. No board
     deadhead/total estimate, stored winning bid, I/O, or policy threshold is used.
     """
     with localcontext(CALCULATION_CONTEXT):
-        return _calculate(shipment, deadhead_miles, bid_rate, projection)
+        return _calculate(shipment, deadhead_miles, bid_rate, projection, timing_policy or OccupancyPolicy(), window)
 
 
-def _calculate(shipment, deadhead_miles, bid_rate, projection):
+def _calculate(shipment, deadhead_miles, bid_rate, projection, timing_policy, window):
     result = ExpectedEconomics()
     if non_negative(deadhead_miles):
         result.projected_deadhead_miles = deadhead_miles
@@ -112,4 +114,33 @@ def _calculate(shipment, deadhead_miles, bid_rate, projection):
             result.margin_pct = money(result.gross_profit / result.payout * Decimal('100'))
             result.sources.margin_pct = source('profit_divided_by_payout', '100 * gross_profit / payout',
                                               gross_profit=result.gross_profit, payout=result.payout)
+    window = window or occupied_window(shipment, deadhead_miles, timing_policy)
+    duration = hours_between(getattr(shipment, 'pickup_at', None), getattr(shipment, 'delivery_at', None))
+    hours_places = Decimal('0.000001')
+    result.turnaround_hours = (timing_policy.turnaround_minutes / 60).quantize(hours_places)
+    result.sources.turnaround_hours = source('configured_turnaround', 'turnaround_minutes / 60',
+                                            turnaround_minutes=timing_policy.turnaround_minutes)
+    if non_negative(deadhead_miles):
+        travel = deadhead_miles / timing_policy.assumed_travel_speed_mph
+        result.deadhead_travel_hours = travel.quantize(hours_places)
+        result.sources.deadhead_travel_hours = source('distance_divided_by_speed',
+            'projected_deadhead_miles / assumed_travel_speed_mph',
+            projected_deadhead_miles=deadhead_miles, assumed_travel_speed_mph=timing_policy.assumed_travel_speed_mph)
+    if duration is not None:
+        result.shipment_duration_hours = duration.quantize(hours_places)
+        result.sources.shipment_duration_hours = source('booking_duration', '(delivery_at - pickup_at) in hours',
+            pickup_at=shipment.pickup_at, delivery_at=shipment.delivery_at)
+    else:
+        missing(result, 'order.pickup_at/delivery_at', 'shipment_duration_unknown_or_invalid',
+                'Pickup and delivery must be known, with delivery later than pickup, to calculate occupied time.')
+    if window is not None:
+        result.occupied_hours = window.occupied_hours.quantize(hours_places)
+        result.sources.occupied_hours = source('sum_occupied_components',
+            'deadhead_travel_hours + shipment_duration_hours + turnaround_hours',
+            deadhead_travel_hours=window.deadhead_travel_hours, shipment_duration_hours=window.shipment_duration_hours,
+            turnaround_hours=window.turnaround_hours)
+        if result.gross_profit is not None:
+            result.profit_per_hour = money(result.gross_profit / window.occupied_hours)
+            result.sources.profit_per_hour = source('profit_divided_by_occupied_hours',
+                'gross_profit / occupied_hours', gross_profit=result.gross_profit, occupied_hours=window.occupied_hours)
     return result

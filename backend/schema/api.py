@@ -35,6 +35,8 @@ class AssignmentView(View):
     destination_terminal_id: UUID
     busy_from: datetime
     busy_until: datetime
+    occupied_from: datetime | None = None
+    occupied_until: datetime | None = None
     assignment_status: str
     confirmed_at: datetime
     completed_at: datetime | None

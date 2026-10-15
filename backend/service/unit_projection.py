@@ -18,7 +18,7 @@ from service.geography import nearest_terminal, valid_coordinates
 from service.scheduling import BOOKABLE_UNIT_STATUSES
 
 
-def project_units(session: Session, units: list[FleetUnit], at: datetime | None = None) -> list[UnitProjection]:
+def project_units(session: Session, units: list[FleetUnit], at: datetime | None = None, *, exclude_shipment_id=None, snapshot_time=None) -> list[UnitProjection]:
     """Derive positions from confirmed bookings, without changing mirrored state."""
     if not units:
         return []
@@ -38,6 +38,7 @@ def project_units(session: Session, units: list[FleetUnit], at: datetime | None 
         Shipment, Shipment.shipment_id == Assignment.shipment_id,
     ).join(FleetUnit, FleetUnit.unit_id == Assignment.unit_id).where(
         Assignment.unit_id.in_(bookings),
+        Assignment.shipment_id != exclude_shipment_id if exclude_shipment_id is not None else True,
         Assignment.assignment_status.in_((*ACTIVE_ASSIGNMENT_STATUSES, 'completed')),
         Shipment.status.in_(('accepted', 'in_transit', 'completed')),
         Shipment.board_missing_at.is_(None),
@@ -51,6 +52,7 @@ def project_units(session: Session, units: list[FleetUnit], at: datetime | None 
     unverified = {unit.unit_id: [] for unit in units}
     for assignment in session.scalars(select(Assignment).where(
         Assignment.unit_id.in_(unverified),
+        Assignment.shipment_id != exclude_shipment_id if exclude_shipment_id is not None else True,
         Assignment.assignment_status.in_(ACTIVE_ASSIGNMENT_STATUSES),
     ).order_by(Assignment.busy_from, Assignment.assignment_id)):
         if assignment.assignment_id not in trusted_ids:
@@ -58,13 +60,13 @@ def project_units(session: Session, units: list[FleetUnit], at: datetime | None 
     results = []
     for unit in units:
         capacity = capacities.get(unit.home_terminal_id)
-        baseline = utc(capacity.as_of_sim_time) if capacity else None
+        baseline = utc(capacity.as_of_sim_time) if capacity else utc(snapshot_time) if snapshot_time else None
         projection = UnitProjection(unit_id=unit.unit_id, board_unit_id=unit.board_unit_id,
                                     baseline_sim_time=baseline)
         results.append(projection)
         relevant = [(assignment, shipment) for assignment, shipment in bookings[unit.unit_id]
                     if baseline is not None and (
-                        utc(assignment.busy_until) > baseline
+                        utc(assignment.occupied_until or assignment.busy_until) > baseline
                         or (utc(assignment.busy_until) == baseline
                             and assignment.assignment_status in ACTIVE_ASSIGNMENT_STATUSES
                             and unit.status in ('assigned', 'in_transit'))
@@ -77,13 +79,15 @@ def project_units(session: Session, units: list[FleetUnit], at: datetime | None 
             projection.deliveries.append(ProjectedDelivery(
                 assignment_id=assignment.assignment_id, shipment_id=shipment.shipment_id,
                 external_id=shipment.external_id, pickup_at=utc(assignment.busy_from),
-                delivery_at=utc(assignment.busy_until), terminal_id=terminal.terminal_id if terminal else None,
+                delivery_at=utc(assignment.busy_until),
+                occupied_from=utc(assignment.occupied_from or assignment.busy_from),
+                available_at=utc(assignment.occupied_until or assignment.busy_until), terminal_id=terminal.terminal_id if terminal else None,
                 terminal_code=terminal.code if terminal else None,
                 terminal_resolution=resolution if terminal else 'unresolved',
                 latitude=shipment.destination_latitude if valid else None,
                 longitude=shipment.destination_longitude if valid else None,
             ))
-        times = [baseline, now, *[delivery.delivery_at for delivery in projection.deliveries]]
+        times = [baseline, now, *[delivery.available_at for delivery in projection.deliveries]]
         projection.at = utc(at) if at is not None else max(
             (value for value in times if value is not None), default=None,
         )
@@ -106,19 +110,20 @@ def project_units(session: Session, units: list[FleetUnit], at: datetime | None 
         projection.status = 'available'
         for delivery in projection.deliveries:
             if delivery.delivery_at <= projection.at:
-                projection.terminal_id = delivery.terminal_id
-                projection.terminal_code = delivery.terminal_code
-                projection.latitude = delivery.latitude
-                projection.longitude = delivery.longitude
-                projection.source = 'booked_delivery'
-                projection.source_assignment_id = delivery.assignment_id
-                projection.available_at = max(projection.available_at or delivery.delivery_at, delivery.delivery_at)
-            elif delivery.pickup_at <= projection.at:
+                if delivery.delivery_at >= baseline:
+                    projection.terminal_id = delivery.terminal_id
+                    projection.terminal_code = delivery.terminal_code
+                    projection.latitude = delivery.latitude
+                    projection.longitude = delivery.longitude
+                    projection.source = 'booked_delivery'
+                    projection.source_assignment_id = delivery.assignment_id
+                projection.available_at = max(projection.available_at or delivery.available_at, delivery.available_at)
+            elif delivery.occupied_from <= projection.at:
                 projection.status = 'busy'
                 projection.source = 'in_transit'
                 projection.source_assignment_id = delivery.assignment_id
                 projection.latitude = projection.longitude = None
-                projection.available_at = delivery.delivery_at
+                projection.available_at = delivery.available_at
                 projection.next_terminal_id = delivery.terminal_id
                 projection.next_terminal_code = delivery.terminal_code
                 break

@@ -4,6 +4,8 @@ from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+from schema.occupancy import OccupiedWindow
+from schema.scheduling import ReservationConflict, ScheduleConflict
 
 
 class ProjectedDelivery(BaseModel):
@@ -12,6 +14,8 @@ class ProjectedDelivery(BaseModel):
     external_id: str
     pickup_at: datetime
     delivery_at: datetime
+    occupied_from: datetime | None = None
+    available_at: datetime | None = None
     terminal_id: UUID | None
     terminal_code: str | None
     terminal_resolution: Literal['destination_code', 'nearest_destination', 'unresolved']
@@ -44,6 +48,9 @@ class ChainingUnit(BaseModel):
     projection: UnitProjection
     distance_miles: Decimal | None = None
     projected_deadhead_miles: Decimal | None = None
+    occupied_window: OccupiedWindow | None = None
     eligible: bool = False
+    conflicting_assignments: list[ScheduleConflict] = Field(default_factory=list)
+    conflicting_reservations: list[ReservationConflict] = Field(default_factory=list)
     at_current_pickup_hub: bool = False
     rejection_reasons: list[str] = Field(default_factory=list)

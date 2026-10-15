@@ -18,6 +18,11 @@ class EconomicsSources(BaseModel):
     projected_deadhead_cost: EconomicsSource = Field(default_factory=EconomicsSource)
     total_cost: EconomicsSource = Field(default_factory=EconomicsSource)
     gross_profit: EconomicsSource = Field(default_factory=EconomicsSource)
+    deadhead_travel_hours: EconomicsSource = Field(default_factory=EconomicsSource)
+    shipment_duration_hours: EconomicsSource = Field(default_factory=EconomicsSource)
+    turnaround_hours: EconomicsSource = Field(default_factory=EconomicsSource)
+    occupied_hours: EconomicsSource = Field(default_factory=EconomicsSource)
+    profit_per_hour: EconomicsSource = Field(default_factory=EconomicsSource)
     margin_pct: EconomicsSource = Field(default_factory=EconomicsSource)
 
 
@@ -37,6 +42,11 @@ class ExpectedEconomics(BaseModel):
     total_cost: Decimal | None = None
     gross_profit: Decimal | None = None
     margin_pct: Decimal | None = None
+    deadhead_travel_hours: Decimal | None = None
+    shipment_duration_hours: Decimal | None = None
+    turnaround_hours: Decimal | None = None
+    occupied_hours: Decimal | None = None
+    profit_per_hour: Decimal | None = None
     cost_per_mile: Decimal | None = None
     sources: EconomicsSources = Field(default_factory=EconomicsSources)
     missing_inputs: list[MissingEconomicsInput] = Field(default_factory=list)

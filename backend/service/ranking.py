@@ -143,20 +143,20 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
             previous_id = assignment.assignment_id
             destination = context.by_code.get((order.destination_terminal_code or '').upper())
             destination = destination or nearest_terminal(context.terminals, order.destination_latitude, order.destination_longitude)
-            gap = Decimal(str((utc(shipment.pickup_at) - utc(assignment.busy_until)).total_seconds()))
+            gap = Decimal(str((item.occupied_window.occupied_from - utc(assignment.occupied_until or assignment.busy_until)).total_seconds()))
             continues = destination is not None and destination.terminal_id == routing.pickup_terminal_id
             if continues:
                 continuity = ONE / (ONE + gap / Decimal('3600'))
-        intervals = [(assignment.busy_from, assignment.busy_until) for assignment, _ in context.bookings[unit.unit_id]]
+        intervals = [(assignment.occupied_from or assignment.busy_from, assignment.occupied_until or assignment.busy_until) for assignment, _ in context.bookings[unit.unit_id]]
         before = occupied_seconds(intervals, context.now, context.end)
-        after = occupied_seconds([*intervals, (shipment.pickup_at, shipment.delivery_at)], context.now, context.end)
+        after = occupied_seconds([*intervals, (item.occupied_window.occupied_from, item.occupied_window.occupied_until)], context.now, context.end)
         horizon = Decimal(str((context.end - context.now).total_seconds()))
         utilization = after / horizon
         policy = context.policy
         score = (empty_score * policy.empty_miles_weight + continuity * policy.continuity_weight
                  + utilization * policy.utilization_weight) / (
                      policy.empty_miles_weight + policy.continuity_weight + policy.utilization_weight)
-        economics = expected_economics(shipment, miles, context.bid_rate, projection=projection)
+        economics = expected_economics(shipment, miles, context.bid_rate, projection=projection, timing_policy=routing.policy, window=item.occupied_window)
         match = RankedMatch(
             external_id=shipment.external_id, shipment_id=shipment.shipment_id,
             unit_id=unit.unit_id, board_unit_id=unit.board_unit_id, unit_number=unit.unit_number,

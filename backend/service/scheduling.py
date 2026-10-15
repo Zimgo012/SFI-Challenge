@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from schema.assignment import ACTIVE_ASSIGNMENT_STATUSES, Assignment
@@ -12,6 +12,20 @@ from service.expiration import utc
 BOOKABLE_UNIT_STATUSES = ('available', 'assigned', 'in_transit')
 
 
+def locking_assignments():
+    return or_(Assignment.assignment_status.in_(ACTIVE_ASSIGNMENT_STATUSES),
+               (Assignment.assignment_status == 'completed') & (Assignment.occupied_until > Assignment.busy_until))
+
+
+def occupied_start():
+    return case((Assignment.assignment_status == 'completed', Assignment.busy_until),
+                else_=func.coalesce(Assignment.occupied_from, Assignment.busy_from))
+
+
+def occupied_end():
+    return func.coalesce(Assignment.occupied_until, Assignment.busy_until)
+
+
 def schedule_conflicts(session: Session, unit_ids, pickup_at: datetime, delivery_at: datetime):
     """Find every active overlap, including future locks and retained missing orders."""
     conflicts = {unit_id: [] for unit_id in unit_ids}
@@ -19,14 +33,15 @@ def schedule_conflicts(session: Session, unit_ids, pickup_at: datetime, delivery
         return conflicts
     assignments = session.scalars(select(Assignment).where(
         Assignment.unit_id.in_(unit_ids),
-        Assignment.assignment_status.in_(ACTIVE_ASSIGNMENT_STATUSES),
-        Assignment.busy_from < utc(delivery_at),
-        Assignment.busy_until > utc(pickup_at),
+        locking_assignments(),
+        occupied_start() < utc(delivery_at),
+        occupied_end() > utc(pickup_at),
     ).order_by(Assignment.busy_from, Assignment.assignment_id)).all()
     for assignment in assignments:
         conflicts[assignment.unit_id].append(ScheduleConflict(
             assignment_id=assignment.assignment_id, shipment_id=assignment.shipment_id,
-            busy_from=utc(assignment.busy_from), busy_until=utc(assignment.busy_until),
+            busy_from=utc(assignment.busy_until if assignment.assignment_status == 'completed' else assignment.occupied_from or assignment.busy_from),
+            busy_until=utc(assignment.occupied_until or assignment.busy_until),
             assignment_status=assignment.assignment_status,
         ))
     return conflicts

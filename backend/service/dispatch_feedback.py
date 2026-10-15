@@ -46,6 +46,10 @@ register('insufficient_pickup_lead_time', 'Pickup is too soon or already past in
          'Choose a later pickup that meets the configured minimum lead time.')
 register('cannot_reach_pickup_in_time', 'The unit cannot reach pickup by the scheduled time.',
          'Choose a later pickup or an offer closer to the unit; include travel and the configured pickup buffer.')
+register('occupied_window_unknown', 'The full travel, shipment, and turnaround window cannot be verified.',
+         'Sync pickup/delivery times and the projected unit position before reserving the unit.')
+register('departure_in_past', 'The required deadhead departure is already past in simulated time.',
+         'Choose a later pickup or a closer unit so deadhead travel can start before pickup.')
 register('pickup_arrival_unknown', 'The pickup arrival time cannot be verified.',
          'Sync the unit availability and projected location before evaluating travel time again.')
 register('assignment_window_overlap unit_schedule_unavailable', 'The selected unit cannot be verified as free for the full booking window.',
@@ -55,7 +59,7 @@ register('assignment_window_reserved', 'Another dispatch submission already hold
 register('unit_status_unavailable unit_unavailable_at_pickup projected_unit_unavailable',
          'The unit is unavailable or off duty at pickup.',
          'Refresh fleet status and choose an offer with a verified available unit.')
-register('unit_available_after_pickup unit_availability_unknown', 'The unit availability is unknown or later than pickup.',
+register('unit_available_after_pickup unit_availability_unknown unit_available_after_departure', 'The unit availability is unknown or later than pickup.',
          'Sync availability or choose pickup after the unit becomes available.')
 register('unit_not_board_selectable future_terminal_not_yet_board_selectable',
          'The requested unit cannot currently be selected by the board at this pickup hub.',
@@ -113,6 +117,7 @@ def add_feedback(result, shipment, routing, capacity, unit, reason_checks):
                             'max_deadhead_miles': result.policy.max_deadhead_miles},
         'timing_passed': {'pickup_at': shipment.pickup_at, 'delivery_at': shipment.delivery_at,
                           'earliest_pickup_at': result.earliest_pickup_at,
+                          'occupied_window': result.occupied_window.model_dump(mode='json') if result.occupied_window else None,
                           'simulated_now': result.evaluated_at_sim,
                           'min_pickup_lead_minutes': result.policy.min_pickup_lead_minutes,
                           'pickup_buffer_minutes': result.policy.pickup_buffer_minutes},

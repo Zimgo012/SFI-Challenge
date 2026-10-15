@@ -18,6 +18,11 @@ class Assignment(Base):
             "assignment_status IN ('confirmed', 'accepted', 'in_transit', 'active', 'completed', 'cancelled')",
             name='valid_status',
         ),
+        CheckConstraint(
+            '(occupied_from IS NULL AND occupied_until IS NULL) OR '
+            '(occupied_from IS NOT NULL AND occupied_until IS NOT NULL AND occupied_from <= busy_from AND occupied_until >= busy_until)',
+            name='occupied_covers_load',
+        ),
         Index('uq_assignments_active_shipment', 'shipment_id', unique=True,
               sqlite_where=text(ACTIVE_ASSIGNMENT_SQL)),
     )
@@ -54,12 +59,14 @@ class Assignment(Base):
     )
     busy_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     busy_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    occupied_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    occupied_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     assignment_status: Mapped[str] = mapped_column(Text, nullable=False)
     confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    @validates('busy_from', 'busy_until', 'confirmed_at', 'completed_at', 'cancelled_at')
+    @validates('busy_from', 'busy_until', 'occupied_from', 'occupied_until', 'confirmed_at', 'completed_at', 'cancelled_at')
     def normalize_timestamp(self, key, value):
         from service.expiration import utc
         return utc(value) if value is not None else None

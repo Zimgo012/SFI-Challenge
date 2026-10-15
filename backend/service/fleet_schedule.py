@@ -10,6 +10,7 @@ from schema.shipment import Shipment
 from schema.simulation_clock import SimulationClock
 from schema.terminal import Terminal
 from service.errors import ProductError
+from service.scheduling import locking_assignments, occupied_start, occupied_end
 from service.expiration import simulated_now, utc
 
 
@@ -38,14 +39,16 @@ def schedules(session, limit=50, offset=0, unit_id=None, terminal=None,
 
     def window(query, model):
         if starts_at:
-            query = query.where(model.busy_until > starts_at)
+            query = query.where((occupied_end() if model is Assignment else model.busy_until) > starts_at)
         if ends_at:
-            query = query.where(model.busy_from < ends_at)
+            query = query.where((occupied_start() if model is Assignment else model.busy_from) < ends_at)
         return query.order_by(model.busy_from)
 
     bookings = select(Assignment, Shipment.external_id).join(Shipment).where(Assignment.unit_id.in_(items))
     if not include_history:
-        bookings = bookings.where(Assignment.assignment_status.in_(ACTIVE_ASSIGNMENT_STATUSES))
+        bookings = bookings.where(locking_assignments())
+    if not include_history and now is not None:
+        bookings = bookings.where((Assignment.assignment_status != 'completed') | (Assignment.occupied_until > now))
     for assignment, external_id in session.execute(window(bookings, Assignment)):
         items[assignment.unit_id].assignments.append(ScheduledAssignment(
             **AssignmentView.model_validate(assignment).model_dump(),

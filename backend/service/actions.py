@@ -96,7 +96,7 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
                 if evaluation is not None:
                     session.add(AssignmentReservation(
                         action_id=action.action_id, unit_id=evaluation.candidate_unit_id,
-                        busy_from=shipment.pickup_at, busy_until=shipment.delivery_at,
+                        busy_from=checked.occupied_window.occupied_from, busy_until=checked.occupied_window.occupied_until,
                         created_at=datetime.now(timezone.utc),
                     ))
                     session.flush()

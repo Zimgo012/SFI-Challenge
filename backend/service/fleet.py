@@ -13,6 +13,7 @@ from schema.fleet_unit import FleetUnit
 from schema.shipment import Shipment
 from schema.terminal import Terminal
 from service.expiration import utc
+from service.scheduling import locking_assignments, occupied_start, occupied_end
 from service.activity import add_activity
 
 logger = logging.getLogger('uvicorn.error.fleet')
@@ -50,8 +51,8 @@ def reconcile_fleet(
 
     busy_units = set(session.scalars(
         select(Assignment.unit_id).where(
-            Assignment.assignment_status.in_(ACTIVE_ASSIGNMENT_STATUSES),
-            Assignment.busy_from <= sim_time, Assignment.busy_until > sim_time,
+            locking_assignments(),
+            occupied_start() <= sim_time, occupied_end() > sim_time,
         ),
     ))
     busy_units.update(session.scalars(select(AssignmentReservation.unit_id).where(

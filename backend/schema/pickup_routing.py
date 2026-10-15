@@ -5,11 +5,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from schema.occupancy import OccupancyPolicy
 from schema.scheduling import ReservationConflict, ScheduleConflict
 from schema.unit_projection import ChainingUnit, UnitProjection
 
 
-class PickupRoutingPolicy(BaseModel):
+class PickupRoutingPolicy(OccupancyPolicy):
     max_pickup_move_miles: Decimal = Field(default=Decimal('100'), ge=0, allow_inf_nan=False)
     distance_method: Literal['haversine_straight_line'] = 'haversine_straight_line'
 

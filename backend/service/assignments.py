@@ -11,6 +11,7 @@ from schema.fleet_unit import FleetUnit
 from schema.shipment import Shipment
 from schema.terminal import Terminal
 from service.activity import add_activity
+from service.assignment_occupancy import assignment_occupied_bounds
 from service.geography import nearest_terminal
 from service.reservations import release_resolved_reservations
 
@@ -72,6 +73,7 @@ def reconcile_bookings(session: Session, sim_time: datetime) -> None:
                 if not historical_completion:
                     try:
                         with session.begin_nested():
+                            occupied_from, occupied_until = assignment_occupied_bounds(session, shipment, unit, assignment, sim_time)
                             is_new = assignment is None
                             if is_new:
                                 assignment = Assignment(shipment_id=shipment.shipment_id, confirmed_at=sim_time)
@@ -79,6 +81,8 @@ def reconcile_bookings(session: Session, sim_time: datetime) -> None:
                             assignment.unit_id = unit.unit_id
                             assignment.origin_terminal_id = origin.terminal_id
                             assignment.destination_terminal_id = destination.terminal_id
+                            assignment.occupied_from = occupied_from
+                            assignment.occupied_until = occupied_until
                             assignment.busy_from = shipment.pickup_at
                             assignment.busy_until = shipment.delivery_at
                             assignment.assignment_status = 'confirmed' if shipment.status == 'accepted' else shipment.status

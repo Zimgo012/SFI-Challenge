@@ -27,7 +27,7 @@ CHECKS = (
 SCHEDULE_REASONS = {
     'assignment_window_overlap', 'assignment_window_reserved', 'unit_status_unavailable',
     'unit_available_after_pickup', 'unit_availability_unknown', 'unit_unavailable_at_pickup',
-    'projected_unit_unavailable',
+    'projected_unit_unavailable', 'unit_available_after_departure',
 }
 
 
@@ -35,6 +35,7 @@ def dispatch_policy() -> DispatchPolicy:
     config = dotenv_values(PROJECT_ROOT / '.env')
     fields = {
         'enforce_margin': ('ENFORCE_MARGIN', 'true'),
+        'turnaround_minutes': ('TURNAROUND_MINUTES', '30'),
         'min_expected_margin_pct': ('MIN_EXPECTED_MARGIN_PCT', '15'),
         'min_expected_margin_usd': ('MIN_EXPECTED_MARGIN_USD', '0'),
         'max_weight_lbs': ('MAX_WEIGHT_LBS', '44000'),
@@ -69,7 +70,8 @@ def evaluate_dispatch(session: Session, shipment: Shipment, bid_rate=None, unit_
     result = DispatchEvaluation(
         external_id=shipment.external_id, candidate_unit_id=candidate_id, evaluated_at_sim=now,
         policy=policy, checks={key: True for key in CHECKS},
-        economics=expected_economics(shipment, miles, bid_rate, projection=projection), deadhead_miles=miles, projection=projection,
+        economics=expected_economics(shipment, miles, bid_rate, projection=projection, timing_policy=routing.policy, window=planned.occupied_window if planned else None),
+        deadhead_miles=miles, projection=projection, occupied_window=planned.occupied_window if planned else None,
     )
 
     reason_checks = {}
@@ -147,10 +149,15 @@ def evaluate_dispatch(session: Session, shipment: Shipment, bid_rate=None, unit_
         else:
             start = max(now, projection.available_at)
             result.earliest_pickup_at = start + timedelta(
-                hours=float(miles / policy.assumed_travel_speed_mph), minutes=float(policy.pickup_buffer_minutes),
+                hours=float(miles / routing.policy.assumed_travel_speed_mph), minutes=float(policy.pickup_buffer_minutes),
             )
             if result.earliest_pickup_at > pickup:
                 fail('timing_passed', 'cannot_reach_pickup_in_time')
+
+        if result.occupied_window is None:
+            fail('timing_passed', 'occupied_window_unknown')
+        elif result.occupied_window.occupied_from < now:
+            fail('timing_passed', 'departure_in_past')
 
     capacity = session.get(FleetCapacity, routing.pickup_terminal_id) if routing.pickup_terminal_id else None
     result.capacity_units_for_window = sum(item.eligible for item in routing.units)
