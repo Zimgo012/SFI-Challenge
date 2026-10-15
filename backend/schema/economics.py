@@ -2,6 +2,7 @@ from decimal import Decimal
 from typing import Literal
 
 from pydantic import BaseModel, Field, computed_field
+from schema.profit_adjustment import ProfitAdjustmentDetails
 
 
 class EconomicsSource(BaseModel):
@@ -24,6 +25,19 @@ class EconomicsSources(BaseModel):
     occupied_hours: EconomicsSource = Field(default_factory=EconomicsSource)
     profit_per_hour: EconomicsSource = Field(default_factory=EconomicsSource)
     margin_pct: EconomicsSource = Field(default_factory=EconomicsSource)
+    minimum_profitable_bid: EconomicsSource = Field(default_factory=EconomicsSource)
+    opportunity_cost: EconomicsSource = Field(default_factory=EconomicsSource)
+    positioning_value: EconomicsSource = Field(default_factory=EconomicsSource)
+    adjusted_profit: EconomicsSource = Field(default_factory=EconomicsSource)
+
+
+class BidFloorRequirements(BaseModel):
+    minimum_profit_usd: Decimal = Field(default=Decimal('0'), ge=0, allow_inf_nan=False)
+    minimum_margin_pct: Decimal = Field(default=Decimal('15'), ge=0, le=100, allow_inf_nan=False)
+    dollar_profit_floor: Decimal | None = None
+    percentage_margin_floor: Decimal | None = None
+    determining_requirement: Literal['dollar_profit', 'percentage_margin', 'both'] | None = None
+    explanation: str = 'Total cost is unknown; select a unit with known loaded and deadhead costs.'
 
 
 class MissingEconomicsInput(BaseModel):
@@ -47,6 +61,12 @@ class ExpectedEconomics(BaseModel):
     turnaround_hours: Decimal | None = None
     occupied_hours: Decimal | None = None
     profit_per_hour: Decimal | None = None
+    minimum_profitable_bid: Decimal | None = None
+    bid_floor: BidFloorRequirements = Field(default_factory=BidFloorRequirements)
+    opportunity_cost: Decimal | None = None
+    positioning_value: Decimal | None = None
+    adjusted_profit: Decimal | None = None
+    profit_adjustments: ProfitAdjustmentDetails = Field(default_factory=ProfitAdjustmentDetails)
     cost_per_mile: Decimal | None = None
     sources: EconomicsSources = Field(default_factory=EconomicsSources)
     missing_inputs: list[MissingEconomicsInput] = Field(default_factory=list)

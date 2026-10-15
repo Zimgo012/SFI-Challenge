@@ -33,7 +33,7 @@ def read_loads(engine: Engine, order_type: str, status: str, origin_terminal: st
             statement = statement.where(func.upper(Shipment.origin_terminal_code) == origin_terminal.upper())
         items = []
         for row in session.scalars(statement):
-            view = load_view(row, system.sim_time_utc)
+            view = load_view(row, system.sim_time_utc, session)
             # Do not advertise an expired offer between background expiration ticks.
             if (row.status == 'open' and row.expires_at is not None
                     and system.sim_time_utc is not None and utc(row.expires_at) <= system.sim_time_utc):
@@ -41,6 +41,8 @@ def read_loads(engine: Engine, order_type: str, status: str, origin_terminal: st
                 view.seconds_remaining = 0
                 view.estimated_profit = None
                 view.profit_category = 'unavailable'
+                view.board_estimated_profit = None
+                view.board_estimated_profit_category = 'unavailable'
             if status == 'all' or view.status == status:
                 items.append(view)
         return LoadStreamState(items=items, system=system)

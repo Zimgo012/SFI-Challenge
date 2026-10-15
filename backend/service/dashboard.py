@@ -35,11 +35,11 @@ def page(session, statement, render, limit, offset):
     return Page(items=[render(row) for row in rows], total=total, limit=limit, offset=offset)
 
 
-def profit(row: Shipment):
+def board_profit(row: Shipment):
     cost = row.estimated_total_cost
     if cost is None and row.estimated_cost is not None and row.estimated_deadhead_cost is not None:
         cost = row.estimated_cost + row.estimated_deadhead_cost
-    payout = row.winning_bid_rate if row.order_type == 'open_bid' else row.offered_rate
+    payout = row.winning_bid_rate if row.order_type == 'open_bid' and row.status in CONFIRMED_STATUSES else row.offered_rate if row.order_type == 'fixed_rate' else None
     if row.board_missing_at is not None or cost is None or payout is None:
         return None, 'unavailable'
     confirmed = row.status in CONFIRMED_STATUSES and row.board_assigned_unit_id is not None
@@ -49,9 +49,42 @@ def profit(row: Shipment):
     return payout - cost, 'confirmed' if confirmed else 'conditional'
 
 
-def load_view(row: Shipment, sim_time=None) -> LoadView:
+def booking_evaluation(session, row):
+    if session is None or row.board_missing_at is not None:
+        return None
+    if row.status not in (*CONFIRMED_STATUSES, 'bid_submitted'):
+        return None
+    if row.status in CONFIRMED_STATUSES and row.board_assigned_unit_id is None:
+        return None
+    return session.scalar(select(Evaluation).join(
+        DispatchAction, DispatchAction.evaluation_id == Evaluation.evaluation_id,
+    ).where(
+        DispatchAction.shipment_id == row.shipment_id,
+        DispatchAction.action_type == ('bid' if row.order_type == 'open_bid' else 'accept'),
+        DispatchAction.request_status == 'succeeded', Evaluation.eligible.is_(True),
+    ).order_by(DispatchAction.requested_at.desc(), DispatchAction.action_id.desc()))
+
+
+def profit(row: Shipment, session=None):
+    evaluation = booking_evaluation(session, row)
+    if evaluation is None or evaluation.profit_usd is None:
+        return None, 'unavailable'
+    return evaluation.profit_usd, 'conditional' if row.status == 'bid_submitted' else 'confirmed'
+
+
+def load_view(row: Shipment, sim_time=None, session=None) -> LoadView:
     result = LoadView.model_validate(row)
-    result.estimated_profit, result.profit_category = profit(row)
+    result.board_estimated_profit, result.board_estimated_profit_category = board_profit(row)
+    evaluation = booking_evaluation(session, row)
+    if evaluation is not None:
+        result.estimated_profit = evaluation.profit_usd
+        result.profit_category = ('conditional' if row.status == 'bid_submitted' else 'confirmed') if evaluation.profit_usd is not None else 'unavailable'
+        result.profit_source = 'booking_time_evaluation'
+        result.profit_evaluation_id = evaluation.evaluation_id
+        result.profit_unit_id = evaluation.candidate_unit_id
+        unit = session.get(FleetUnit, evaluation.candidate_unit_id) if evaluation.candidate_unit_id else None
+        if row.board_assigned_unit_id is not None:
+            result.profit_unit_matches_assignment = unit is not None and unit.board_unit_id == row.board_assigned_unit_id
     if row.board_missing_at is not None or sim_time is None:
         result.seconds_remaining = None
     else:
@@ -74,7 +107,7 @@ def list_loads(session, limit=50, offset=0, order_type=None, status=None, origin
     if shipments_only:
         statement = statement.where(Shipment.status.in_(CONFIRMED_STATUSES), Shipment.board_missing_at.is_(None))
     sim_time = clock_time(session)
-    return page(session, statement, lambda row: load_view(row, sim_time), limit, offset)
+    return page(session, statement, lambda row: load_view(row, sim_time, session), limit, offset)
 
 
 def load_detail(session: Session, external_id: str) -> LoadDetail:
@@ -97,7 +130,7 @@ def load_detail(session: Session, external_id: str) -> LoadDetail:
     evaluation = session.scalar(select(Evaluation).where(Evaluation.shipment_id == row.shipment_id).order_by(Evaluation.evaluated_at_wall.desc()))
     actions = session.scalars(select(DispatchAction).where(DispatchAction.shipment_id == row.shipment_id).order_by(DispatchAction.requested_at.desc())).all()
     return LoadDetail(
-        **load_view(row, clock_time(session)).model_dump(),
+        **load_view(row, clock_time(session), session).model_dump(),
         actions=[ActionView.model_validate(action) for action in actions],
         actual_assignment=AssignmentView.model_validate(assignment) if assignment else None,
         latest_evaluation=EvaluationView.model_validate(evaluation) if evaluation else None,
@@ -202,7 +235,7 @@ def list_bids(session, limit=50, offset=0):
             bid_rate=action.bid_rate if action else row.winning_bid_rate,
             request_status=action.request_status if action else None,
             outcome=outcome, decision_at=utc(row.bid_decision_at) if row.bid_decision_at else None,
-            order=load_view(row, sim_time),
+            order=load_view(row, sim_time, session),
         )
     return page(session, statement, render, limit, offset)
 
@@ -246,7 +279,7 @@ def overview(session):
         confirmed_unknown_count=0, pending_unknown_count=0,
     )
     for row in session.scalars(select(Shipment).where(Shipment.board_missing_at.is_(None))):
-        amount, category = profit(row)
+        amount, category = profit(row, session)
         if row.status in CONFIRMED_STATUSES:
             if category == 'confirmed':
                 summary.confirmed_estimated_profit += amount

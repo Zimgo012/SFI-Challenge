@@ -18,7 +18,9 @@ from schema.simulation_clock import SimulationClock
 from schema.terminal import Terminal
 from service.database import PROJECT_ROOT
 from service.errors import ProductError
-from service.dispatch_policy import evaluate_dispatch
+from service.dispatch_policy import dispatch_policy, evaluate_dispatch
+from service.profit_adjustment import ProfitAdjustmentContext, apply_profit_adjustments
+from service.market_context import MarketContext
 from service.dispatch_feedback import rejection_detail
 from service.economics import expected_economics
 from service.expiration import simulated_now, utc
@@ -73,6 +75,10 @@ class RankingContext:
         if clock is None:
             raise ProductError(503, 'Simulation clock has not been synced yet')
         self.now = simulated_now(clock)
+        dispatch = dispatch_policy()
+        self.market = MarketContext(session, dispatch.profit_adjustments, self.now)
+        self.adjustments = ProfitAdjustmentContext(session, dispatch.profit_adjustments, self.now,
+                                                  dispatch.max_fleet_snapshot_age_seconds)
         self.policy = ranking_policy()
         self.end = self.now + timedelta(hours=float(self.policy.utilization_horizon_hours))
         self.unit_id = unit_id
@@ -99,6 +105,7 @@ class RankingContext:
 
 def rank_order(session: Session, shipment: Shipment, context: RankingContext):
     report = OrderRecommendations(
+        market_context=context.market.for_order(shipment),
         external_id=shipment.external_id, evaluated_at_sim=context.now,
         horizon_end=context.end, policy=context.policy,
         entered_bid_rate=context.bid_rate,
@@ -118,7 +125,7 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
     if report.rejection_reasons:
         return report, []
     routing = evaluate_pickup_routing(session, shipment)
-    checked = evaluate_dispatch(session, shipment, context.bid_rate, context.unit_id, routing)
+    checked = evaluate_dispatch(session, shipment, context.bid_rate, context.unit_id, routing, context.adjustments)
     report.dispatch_evaluation = checked
     scored = []
     for item in routing.chaining_units:
@@ -156,7 +163,12 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
         score = (empty_score * policy.empty_miles_weight + continuity * policy.continuity_weight
                  + utilization * policy.utilization_weight) / (
                      policy.empty_miles_weight + policy.continuity_weight + policy.utilization_weight)
-        economics = expected_economics(shipment, miles, context.bid_rate, projection=projection, timing_policy=routing.policy, window=item.occupied_window)
+        economics = expected_economics(
+            shipment, miles, context.bid_rate, projection=projection, timing_policy=routing.policy,
+            window=item.occupied_window, minimum_profit_usd=checked.policy.min_expected_margin_usd,
+            minimum_margin_pct=checked.policy.min_expected_margin_pct,
+        )
+        apply_profit_adjustments(economics, shipment, item, routing, context.adjustments)
         match = RankedMatch(
             external_id=shipment.external_id, shipment_id=shipment.shipment_id,
             unit_id=unit.unit_id, board_unit_id=unit.board_unit_id, unit_number=unit.unit_number,

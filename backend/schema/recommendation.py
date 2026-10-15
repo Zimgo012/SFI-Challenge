@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from schema.economics import ExpectedEconomics
 from schema.dispatch_policy import DispatchEvaluation, DispatchRejection
+from schema.market_context import HistoricalMarketContext
 
 
 class RankingPolicy(BaseModel):
@@ -61,6 +62,7 @@ class RejectedUnit(BaseModel):
 
 
 class OrderRecommendations(BaseModel):
+    market_context: HistoricalMarketContext | None = None
     external_id: str
     evaluated_at_sim: datetime
     horizon_end: datetime

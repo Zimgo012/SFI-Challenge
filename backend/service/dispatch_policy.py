@@ -19,6 +19,7 @@ from service.dispatch_feedback import add_feedback
 from service.errors import ProductError
 from service.expiration import simulated_now, utc
 from service.pickup_routing import evaluate_pickup_routing, routing_policy
+from service.profit_adjustment import ProfitAdjustmentContext, apply_profit_adjustments, profit_adjustment_policy
 
 CHECKS = (
     'offer_open_unexpired', 'pricing_passed', 'deadhead_passed', 'weight_passed',
@@ -45,14 +46,14 @@ def dispatch_policy() -> DispatchPolicy:
         'max_fleet_snapshot_age_seconds': ('MAX_FLEET_SNAPSHOT_AGE_SECONDS', '120'),
     }
     try:
-        return DispatchPolicy(max_deadhead_miles=routing_policy().max_pickup_move_miles, **{
+        return DispatchPolicy(profit_adjustments=profit_adjustment_policy(), max_deadhead_miles=routing_policy().max_pickup_move_miles, **{
             field: os.environ.get(key, config.get(key, default)) for field, (key, default) in fields.items()
         })
     except ValidationError as exc:
         raise ProductError(503, 'Invalid dispatcher policy configuration; check margin, weight, timing, speed, and freshness settings') from exc
 
 
-def evaluate_dispatch(session: Session, shipment: Shipment, bid_rate=None, unit_id=None, routing=None) -> DispatchEvaluation:
+def evaluate_dispatch(session: Session, shipment: Shipment, bid_rate=None, unit_id=None, routing=None, adjustment_context=None) -> DispatchEvaluation:
     policy = dispatch_policy()
     clock = session.get(SimulationClock, 1)
     if clock is None:
@@ -70,9 +71,18 @@ def evaluate_dispatch(session: Session, shipment: Shipment, bid_rate=None, unit_
     result = DispatchEvaluation(
         external_id=shipment.external_id, candidate_unit_id=candidate_id, evaluated_at_sim=now,
         policy=policy, checks={key: True for key in CHECKS},
-        economics=expected_economics(shipment, miles, bid_rate, projection=projection, timing_policy=routing.policy, window=planned.occupied_window if planned else None),
+        economics=expected_economics(
+            shipment, miles, bid_rate, projection=projection, timing_policy=routing.policy,
+            window=planned.occupied_window if planned else None,
+            minimum_profit_usd=policy.min_expected_margin_usd, minimum_margin_pct=policy.min_expected_margin_pct,
+        ),
         deadhead_miles=miles, projection=projection, occupied_window=planned.occupied_window if planned else None,
     )
+
+    adjustment_context = adjustment_context or ProfitAdjustmentContext(
+        session, policy.profit_adjustments, now, policy.max_fleet_snapshot_age_seconds,
+    )
+    apply_profit_adjustments(result.economics, shipment, planned, routing, adjustment_context)
 
     reason_checks = {}
 

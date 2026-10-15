@@ -7,9 +7,11 @@ from pydantic import BaseModel, Field
 from schema.economics import ExpectedEconomics
 from schema.occupancy import OccupiedWindow
 from schema.unit_projection import UnitProjection
+from schema.profit_adjustment import ProfitAdjustmentPolicy
 
 
 class DispatchPolicy(BaseModel):
+    profit_adjustments: ProfitAdjustmentPolicy = Field(default_factory=ProfitAdjustmentPolicy)
     enforce_margin: bool = True
     min_expected_margin_pct: Decimal = Field(default=Decimal('15'), ge=0, le=100, allow_inf_nan=False)
     min_expected_margin_usd: Decimal = Field(default=Decimal('0'), ge=0, max_digits=18, decimal_places=6, allow_inf_nan=False)

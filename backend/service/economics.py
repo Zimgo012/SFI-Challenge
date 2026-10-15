@@ -1,8 +1,8 @@
-from decimal import Context, Decimal, ROUND_HALF_UP, localcontext
+from decimal import Context, Decimal, ROUND_CEILING, ROUND_HALF_UP, localcontext
 
 from schema.occupancy import OccupancyPolicy
 from service.occupancy import occupied_window, hours_between
-from schema.economics import EconomicsSource, ExpectedEconomics, MissingEconomicsInput
+from schema.economics import BidFloorRequirements, EconomicsSource, ExpectedEconomics, MissingEconomicsInput
 
 CENT = Decimal('0.01')
 CALCULATION_CONTEXT = Context(prec=50, rounding=ROUND_HALF_UP)
@@ -26,14 +26,51 @@ def missing(result, field, code, message):
 
 
 def expected_economics(shipment, deadhead_miles: Decimal | None, bid_rate: Decimal | None = None,
-                       *, projection=None, timing_policy=None, window=None) -> ExpectedEconomics:
+                       *, projection=None, timing_policy=None, window=None,
+                       minimum_profit_usd=Decimal('0'), minimum_margin_pct=Decimal('15')) -> ExpectedEconomics:
     """Pure USD estimate with fixed Decimal arithmetic and auditable input sources.
 
     Distances are unrounded projected miles supplied by routing. No board
-    deadhead/total estimate, stored winning bid, I/O, or policy threshold is used.
+    deadhead/total estimate, stored winning bid, or I/O is used. Explicit policy
+    thresholds determine the bid floor independently of the proposed payout.
     """
     with localcontext(CALCULATION_CONTEXT):
-        return _calculate(shipment, deadhead_miles, bid_rate, projection, timing_policy or OccupancyPolicy(), window)
+        result = _calculate(shipment, deadhead_miles, bid_rate, projection, timing_policy or OccupancyPolicy(), window)
+        calculate_bid_floor(result, minimum_profit_usd, minimum_margin_pct)
+        return result
+
+
+def calculate_bid_floor(result, minimum_profit_usd, minimum_margin_pct):
+    requirements = BidFloorRequirements(minimum_profit_usd=minimum_profit_usd,
+                                       minimum_margin_pct=minimum_margin_pct)
+    result.bid_floor = requirements
+    result.sources.minimum_profitable_bid = source(
+        'configured_profit_requirements',
+        'max(total_cost + minimum_profit_usd, total_cost / (1 - minimum_margin_pct / 100)); round up to cents',
+        total_cost=result.total_cost, minimum_profit_usd=requirements.minimum_profit_usd,
+        minimum_margin_pct=requirements.minimum_margin_pct,
+    )
+    if result.total_cost is None:
+        missing(result, 'minimum_profitable_bid', 'bid_floor_total_cost_unknown', requirements.explanation)
+        return
+    dollar_floor = result.total_cost + requirements.minimum_profit_usd
+    requirements.dollar_profit_floor = dollar_floor.quantize(CENT, rounding=ROUND_CEILING)
+    if requirements.minimum_margin_pct == 100:
+        requirements.explanation = 'The bid-floor formula is undefined at a 100% minimum margin; configure a margin below 100%.'
+        missing(result, 'minimum_profitable_bid', 'bid_floor_margin_undefined', requirements.explanation)
+        return
+    margin_floor = result.total_cost / (1 - requirements.minimum_margin_pct / 100)
+    requirements.percentage_margin_floor = margin_floor.quantize(CENT, rounding=ROUND_CEILING)
+    result.minimum_profitable_bid = max(requirements.dollar_profit_floor, requirements.percentage_margin_floor)
+    if dollar_floor > margin_floor:
+        requirements.determining_requirement = 'dollar_profit'
+        requirements.explanation = 'Minimum dollar profit sets the floor: total cost plus required dollar profit is higher.'
+    elif margin_floor > dollar_floor:
+        requirements.determining_requirement = 'percentage_margin'
+        requirements.explanation = 'Minimum percentage margin sets the floor: cost divided by one minus the required margin is higher.'
+    else:
+        requirements.determining_requirement = 'both'
+        requirements.explanation = 'Both requirements set the same floor.'
 
 
 def _calculate(shipment, deadhead_miles, bid_rate, projection, timing_policy, window):
@@ -96,6 +133,8 @@ def _calculate(shipment, deadhead_miles, bid_rate, projection, timing_policy, wi
     elif shipment.order_type == 'open_bid':
         if bid_rate is None:
             missing(result, 'bid_rate', 'entered_bid_required', 'Enter the proposed total bid payout to calculate profit.')
+        elif non_negative(bid_rate) and money(bid_rate) != bid_rate:
+            missing(result, 'bid_rate', 'entered_bid_fractional_cents', 'Enter a bid in whole cents; fractional cents are not submitted or rounded.')
         elif non_negative(bid_rate) and bid_rate > 0:
             result.payout = money(bid_rate)
             result.sources.payout = source('entered_bid', bid_rate=bid_rate)

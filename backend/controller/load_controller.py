@@ -17,6 +17,10 @@ from service.actions import execute_action
 from service.load_stream import stream_loads
 from service.pickup_routing import pickup_routing
 from service.ranking import order_recommendations, recommendations
+from schema.market_context import HistoricalMarketContext
+from schema.bid_scenario import BidScenarioRequest, BidScenarioReport
+from service.market_context import order_market_context
+from service.bid_scenario import bid_scenarios
 
 router = APIRouter(prefix='/api/loads', tags=['Loads'])
 OrderType = Literal['fixed_rate', 'open_bid']
@@ -44,7 +48,7 @@ def ranked_recommendations(
 @router.get('/{external_id}/recommendations', response_model=OrderRecommendations)
 def ranked_units(
     external_id: str, session: Database, unit_id: UUID | None = None,
-    bid_rate: Decimal | None = Query(default=None, gt=0, max_digits=18, decimal_places=6, allow_inf_nan=False),
+    bid_rate: Decimal | None = Query(default=None, gt=0, max_digits=18, decimal_places=2, allow_inf_nan=False),
 ):
     return order_recommendations(session, external_id, unit_id, bid_rate)
 
@@ -84,6 +88,16 @@ def load_detail(external_id: str, session: Database):
 @router.post('/{external_id}/accept', response_model=ActionResult)
 async def accept(external_id: str, session: Database, body: ActionRequest | None = None):
     return await execute_action(session.get_bind(), external_id, 'accept', body or ActionRequest())
+
+
+@router.get('/{external_id}/market-context', response_model=HistoricalMarketContext)
+def market_context(external_id: str, session: Database):
+    return order_market_context(session, external_id)
+
+
+@router.post('/{external_id}/bid-scenarios', response_model=BidScenarioReport)
+def compare_bid_scenarios(external_id: str, body: BidScenarioRequest, session: Database):
+    return bid_scenarios(session, external_id, body)
 
 
 @router.post('/{external_id}/decline', response_model=ActionResult)

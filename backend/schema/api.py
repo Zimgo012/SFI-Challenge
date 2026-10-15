@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from schema.fleet_capacity_response import FleetCapacityResponse
+from schema.money import PositiveBid
 
 T = TypeVar('T')
 
@@ -117,8 +118,14 @@ class LoadView(View):
     last_synced_at: datetime | None
     board_missing_at: datetime | None
     seconds_remaining: int | None = None
-    estimated_profit: Decimal | None = None
+    estimated_profit: Decimal | None = Field(default=None, description='Persisted economics linked to a successful local booking or pending bid; not realized profit.')
     profit_category: str = 'unavailable'
+    profit_source: str = 'unavailable'
+    profit_evaluation_id: UUID | None = None
+    profit_unit_id: UUID | None = None
+    profit_unit_matches_assignment: bool | None = None
+    board_estimated_profit: Decimal | None = Field(default=None, description='Separate board-cost estimate; not selected-unit calculator profit or realized profit.')
+    board_estimated_profit_category: str = 'unavailable'
 
 class UnitView(View):
     unit_id: UUID
@@ -224,7 +231,7 @@ class ActionRequest(BaseModel):
 
 
 class BidRequest(ActionRequest):
-    bid_rate: Decimal = Field(gt=0, max_digits=18, decimal_places=6)
+    bid_rate: PositiveBid
 
 
 class BoardActionResponse(BaseModel):
