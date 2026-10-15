@@ -10,9 +10,10 @@ depends_on = None
 ACTIVE = "assignment_status IN ('confirmed', 'accepted', 'in_transit', 'active')"
 
 
-def guards(extended):
+def guards(extended, retired=False):
     def locking(alias):
-        return f"({alias}.{ACTIVE} OR ({alias}.assignment_status = 'completed' AND {alias}.occupied_until > {alias}.busy_until))" if extended else f'{alias}.{ACTIVE}'
+        condition = f"({alias}.{ACTIVE} OR ({alias}.assignment_status = 'completed' AND {alias}.occupied_until > {alias}.busy_until))" if extended else f'{alias}.{ACTIVE}'
+        return f'({alias}.lock_retired_at IS NULL AND {condition})' if retired else condition
 
     def start(alias):
         return f"CASE WHEN {alias}.assignment_status = 'completed' THEN {alias}.busy_until ELSE coalesce({alias}.occupied_from, {alias}.busy_from) END" if extended else f'{alias}.busy_from'

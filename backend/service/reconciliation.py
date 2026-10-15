@@ -13,7 +13,7 @@ from schema.dispatch_action import DispatchAction
 
 def known_order_ids(engine: Engine) -> set[str]:
     with Session(engine) as session:
-        return set(session.scalars(select(Shipment.external_id)))
+        return set(session.scalars(select(Shipment.external_id).where(Shipment.board_retired_at.is_(None))))
 
 
 async def reconcile_known_orders(
@@ -26,9 +26,11 @@ async def reconcile_known_orders(
     def tracked_ids():
         with Session(engine) as session:
             active = set(session.scalars(select(Shipment.external_id).where(
+                Shipment.board_retired_at.is_(None),
                 Shipment.status.in_(('bid_submitted', 'accepted', 'in_transit')),
             )))
             active.update(session.scalars(select(Shipment.external_id).join(DispatchAction).where(
+                Shipment.board_retired_at.is_(None),
                 DispatchAction.request_status.in_(('submitting', 'unknown')),
             )))
             return active

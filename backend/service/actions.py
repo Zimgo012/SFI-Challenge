@@ -118,6 +118,8 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
 def finish_action(engine, action_id, status, message, board_http_status=None):
     with Session(engine) as session, session.begin():
         action = session.get(DispatchAction, action_id)
+        if session.get(Shipment, action.shipment_id).board_retired_at is not None:
+            return
         # A concurrent board sync may already have established the outcome.
         if action.request_status == 'succeeded' and status != 'succeeded':
             release_resolved_reservations(session)
@@ -134,6 +136,9 @@ def finish_action(engine, action_id, status, message, board_http_status=None):
 
 def result(engine, external_id, action_id, sync_pending):
     with Session(engine) as session:
+        stored = session.get(DispatchAction, action_id)
+        if session.get(Shipment, stored.shipment_id).board_retired_at is not None:
+            raise ProductError(409, 'Board reset superseded this submission; refresh the live queue')
         return ActionResult(
             action=ActionView.model_validate(session.get(DispatchAction, action_id)),
             order=load_detail(session, external_id),
@@ -155,6 +160,12 @@ async def execute_action(engine: Engine, external_id: str, kind: str, request: A
                                 f'Board submission outcome unknown: {type(exc).__name__}')
         raise ProductError(504 if isinstance(exc, httpx.TimeoutException) else 502,
                            'Board submission outcome is unknown; wait for reconciliation before retrying') from exc
+    def retired():
+        with Session(engine) as session:
+            action = session.get(DispatchAction, action_id)
+            return session.get(Shipment, action.shipment_id).board_retired_at is not None
+    if await asyncio.to_thread(retired):
+        raise ProductError(409, 'Board reset superseded this submission; refresh the live queue')
     if not response.is_success:
         try:
             message = str(response.json().get('detail', 'Board rejected the action'))[:2000]

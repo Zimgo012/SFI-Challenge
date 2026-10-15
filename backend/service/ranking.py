@@ -35,6 +35,8 @@ SIX_PLACES = Decimal('0.000001')
 def ranking_policy() -> RankingPolicy:
     config = dotenv_values(PROJECT_ROOT / '.env')
     fields = {
+        'profit_weight': ('RANK_PROFIT_WEIGHT', '0.40'),
+        'profit_target_per_hour': ('RANK_PROFIT_TARGET_PER_HOUR', '100'),
         'empty_miles_weight': ('RANK_EMPTY_MILES_WEIGHT', '0.60'),
         'continuity_weight': ('RANK_CONTINUITY_WEIGHT', '0.25'),
         'utilization_weight': ('RANK_UTILIZATION_WEIGHT', '0.15'),
@@ -160,16 +162,41 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
         horizon = Decimal(str((context.end - context.now).total_seconds()))
         utilization = after / horizon
         policy = context.policy
-        score = (empty_score * policy.empty_miles_weight + continuity * policy.continuity_weight
-                 + utilization * policy.utilization_weight) / (
-                     policy.empty_miles_weight + policy.continuity_weight + policy.utilization_weight)
         economics = expected_economics(
             shipment, miles, context.bid_rate, projection=projection, timing_policy=routing.policy,
             window=item.occupied_window, minimum_profit_usd=checked.policy.min_expected_margin_usd,
             minimum_margin_pct=checked.policy.min_expected_margin_pct,
         )
         apply_profit_adjustments(economics, shipment, item, routing, context.adjustments)
+        ranking_economics = economics
+        ranking_bid = context.bid_rate
+        payout_basis = 'fixed_offer' if shipment.order_type == 'fixed_rate' else 'entered_bid'
+        if shipment.order_type == 'open_bid' and ranking_bid is None:
+            floor = economics.minimum_profitable_bid
+            ranking_bid = max(Decimal('.01'), floor) if floor is not None else None
+            payout_basis = 'suggested_cash_floor'
+            if ranking_bid is not None and report.market_context.sufficient_samples:
+                ranking_bid = max(ranking_bid, report.market_context.payout.median)
+                payout_basis = 'historical_median_with_cash_floor'
+            if ranking_bid is not None:
+                ranking_economics = expected_economics(
+                    shipment, miles, ranking_bid, projection=projection, timing_policy=routing.policy,
+                    window=item.occupied_window, minimum_profit_usd=checked.policy.min_expected_margin_usd,
+                    minimum_margin_pct=checked.policy.min_expected_margin_pct,
+                )
+        cash_met = (ranking_economics.payout is not None and ranking_economics.payout > 0
+                    and ranking_economics.gross_profit is not None
+                    and ranking_economics.gross_profit >= checked.policy.min_expected_margin_usd
+                    and ranking_economics.gross_profit * 100 >= checked.policy.min_expected_margin_pct * ranking_economics.payout)
+        profit_score = (min(ONE, max(ZERO, ranking_economics.profit_per_hour / policy.profit_target_per_hour))
+                        if cash_met and ranking_economics.profit_per_hour is not None else None)
+        score = (empty_score * policy.empty_miles_weight + continuity * policy.continuity_weight
+                 + utilization * policy.utilization_weight + (profit_score or ZERO) * policy.profit_weight) / (
+                     policy.empty_miles_weight + policy.continuity_weight + policy.utilization_weight + policy.profit_weight)
         match = RankedMatch(
+            profit_score=profit_score.quantize(SIX_PLACES) if profit_score is not None else None,
+            ranking_cash_requirements_met=bool(cash_met), ranking_payout_basis=payout_basis,
+            ranking_bid_rate=ranking_bid, ranking_economics=ranking_economics,
             external_id=shipment.external_id, shipment_id=shipment.shipment_id,
             unit_id=unit.unit_id, board_unit_id=unit.board_unit_id, unit_number=unit.unit_number,
             pickup_at=utc(shipment.pickup_at), delivery_at=utc(shipment.delivery_at),
@@ -194,7 +221,8 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
             ],
         )
         scored.append((score, miles, unit.employee_code, match))
-    scored.sort(key=lambda row: (-row[0], row[1], shipment.external_id, row[2], row[3].board_unit_id))
+    scored.sort(key=lambda row: (not row[3].ranking_cash_requirements_met if context.policy.profit_weight else False,
+                               -row[0], row[1], shipment.external_id, row[2], row[3].board_unit_id))
     for rank, (_, _, _, match) in enumerate(scored, 1):
         match.rank = rank
     report.ranked_units = [row[3] for row in scored]
@@ -226,7 +254,8 @@ def recommendations(session: Session, limit=50, offset=0, unit_id=None,
         scored = [row for row in scored if row[3].pickup_terminal_code.upper() == origin_terminal.upper()]
     if bookable_only:
         scored = [row for row in scored if row[3].booking_ready]
-    scored.sort(key=lambda row: (-row[0], row[1], row[3].external_id, row[2], row[3].board_unit_id))
+    scored.sort(key=lambda row: (not row[3].ranking_cash_requirements_met if context.policy.profit_weight else False,
+                               -row[0], row[1], row[3].external_id, row[2], row[3].board_unit_id))
     for rank, (_, _, _, match) in enumerate(scored, 1):
         match.rank = rank
     return RecommendationsPage(

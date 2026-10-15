@@ -13,7 +13,7 @@ BOOKABLE_UNIT_STATUSES = ('available', 'assigned', 'in_transit')
 
 
 def locking_assignments():
-    return or_(Assignment.assignment_status.in_(ACTIVE_ASSIGNMENT_STATUSES),
+    return Assignment.lock_retired_at.is_(None) & or_(Assignment.assignment_status.in_(ACTIVE_ASSIGNMENT_STATUSES),
                (Assignment.assignment_status == 'completed') & (Assignment.occupied_until > Assignment.busy_until))
 
 

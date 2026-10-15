@@ -11,6 +11,7 @@ ACTIVE_ASSIGNMENT_SQL = "assignment_status IN ('confirmed', 'accepted', 'in_tran
 
 
 class Assignment(Base):
+    lock_retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     __tablename__ = 'assignments'
     __table_args__ = (
         CheckConstraint('busy_until > busy_from', name='positive_interval'),
@@ -66,7 +67,7 @@ class Assignment(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    @validates('busy_from', 'busy_until', 'occupied_from', 'occupied_until', 'confirmed_at', 'completed_at', 'cancelled_at')
+    @validates('busy_from', 'busy_until', 'occupied_from', 'occupied_until', 'confirmed_at', 'completed_at', 'cancelled_at', 'lock_retired_at')
     def normalize_timestamp(self, key, value):
         from service.expiration import utc
         return utc(value) if value is not None else None

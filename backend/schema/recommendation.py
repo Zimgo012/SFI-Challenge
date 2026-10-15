@@ -10,6 +10,8 @@ from schema.market_context import HistoricalMarketContext
 
 
 class RankingPolicy(BaseModel):
+    profit_weight: Decimal = Field(default=Decimal('0.40'), ge=0, le=1, allow_inf_nan=False)
+    profit_target_per_hour: Decimal = Field(default=Decimal('100'), gt=0, le=100000, allow_inf_nan=False)
     empty_miles_weight: Decimal = Field(default=Decimal('0.60'), ge=0, le=1, allow_inf_nan=False)
     continuity_weight: Decimal = Field(default=Decimal('0.25'), ge=0, le=1, allow_inf_nan=False)
     utilization_weight: Decimal = Field(default=Decimal('0.15'), ge=0, le=1, allow_inf_nan=False)
@@ -17,12 +19,17 @@ class RankingPolicy(BaseModel):
 
     @model_validator(mode='after')
     def positive_weight_sum(self):
-        if self.empty_miles_weight + self.continuity_weight + self.utilization_weight <= 0:
+        if self.empty_miles_weight + self.continuity_weight + self.utilization_weight + self.profit_weight <= 0:
             raise ValueError('At least one ranking weight must be positive')
         return self
 
 
 class RankedMatch(BaseModel):
+    profit_score: Decimal | None = None
+    ranking_cash_requirements_met: bool = False
+    ranking_payout_basis: str = 'unknown'
+    ranking_bid_rate: Decimal | None = None
+    ranking_economics: ExpectedEconomics | None = None
     rank: int = 0
     external_id: str
     shipment_id: UUID

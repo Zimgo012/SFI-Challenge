@@ -38,6 +38,7 @@ def project_units(session: Session, units: list[FleetUnit], at: datetime | None 
         Shipment, Shipment.shipment_id == Assignment.shipment_id,
     ).join(FleetUnit, FleetUnit.unit_id == Assignment.unit_id).where(
         Assignment.unit_id.in_(bookings),
+        Assignment.lock_retired_at.is_(None),
         Assignment.shipment_id != exclude_shipment_id if exclude_shipment_id is not None else True,
         Assignment.assignment_status.in_((*ACTIVE_ASSIGNMENT_STATUSES, 'completed')),
         Shipment.status.in_(('accepted', 'in_transit', 'completed')),
@@ -52,6 +53,7 @@ def project_units(session: Session, units: list[FleetUnit], at: datetime | None 
     unverified = {unit.unit_id: [] for unit in units}
     for assignment in session.scalars(select(Assignment).where(
         Assignment.unit_id.in_(unverified),
+        Assignment.lock_retired_at.is_(None),
         Assignment.shipment_id != exclude_shipment_id if exclude_shipment_id is not None else True,
         Assignment.assignment_status.in_(ACTIVE_ASSIGNMENT_STATUSES),
     ).order_by(Assignment.busy_from, Assignment.assignment_id)):

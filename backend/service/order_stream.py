@@ -59,12 +59,16 @@ async def handle_event(message: str | bytes, base_url: str) -> None:
         log_orders(event.event, refreshed_orders)
         return
     if event.order is not None or event.orders is not None:
+        if event.event == 'order.created':
+            # Reconcile before inserting an arrival: a newly seeded order must
+            # not hide the old generation's all-missing/reset evidence.
+            await ingest(base_url)
         await asyncio.to_thread(
             persist_orders, get_engine(), orders, event.clock,
             created_only=event.event == 'order.created',
         )
         log_orders(event.event, orders)
-        if event.event == 'order.created' or any(
+        if event.event != 'order.created' and any(
             order.status in ('accepted', 'in_transit', 'completed') for order in orders
         ):
             # New arrivals also serve as reconciliation checkpoints if a

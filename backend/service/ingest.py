@@ -6,7 +6,7 @@ from weakref import WeakKeyDictionary
 
 import httpx
 from pydantic import TypeAdapter
-from sqlalchemy import Engine, func, select, update
+from sqlalchemy import Engine, func, select, text, update
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -20,6 +20,7 @@ from service.fleet import log_discrepancies, reconcile_fleet, validate_roster
 from service.activity import add_activity
 from service.assignments import reconcile_bookings
 from service.expiration import simulated_now
+from service.board_reset import retire_reset_state
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,8 @@ def upsert_orders(
     }
     for order in orders:
         previous = session.scalar(select(Shipment).where(Shipment.external_id == order.external_id))
+        if previous is not None and previous.board_retired_at is not None:
+            continue  # Late HTTP/WS payloads cannot resurrect a wiped generation.
         previous_status = previous.status if previous else None
         values = order.model_dump(
             exclude={'id', 'created_at', 'assigned_driver_id'}, exclude_unset=True,
@@ -81,6 +84,8 @@ def persist_orders(
 ) -> None:
     synced_at = datetime.now(timezone.utc)
     with Session(engine) as session, session.begin():
+        if engine.dialect.name == 'sqlite':
+            session.execute(text('BEGIN IMMEDIATE'))
         if clock is not None:
             stored_clock = session.get(SimulationClock, 1)
             previous_wall_time = (
@@ -111,6 +116,12 @@ def persist_snapshot(
     synced_at = datetime.now(timezone.utc)
     with Session(engine) as session, session.begin():
         # Include roster terminals in case a terminal was added between API reads.
+        if engine.dialect.name == 'sqlite':
+            session.execute(text('BEGIN IMMEDIATE'))
+        stored_clock = session.get(SimulationClock, 1)
+        if stored_clock is not None and clock.wall_time_utc < stored_clock.wall_time_utc.replace(tzinfo=timezone.utc):
+            return  # A slower worker cannot restore an older board snapshot.
+        retire_reset_state(session, clock, orders, missing_order_ids, synced_at)
         for terminal in [*terminals, *(snapshot.terminal for snapshot in fleet)]:
             values = terminal.model_dump(exclude={'id', 'unit_capacity'})
             values.update(

@@ -29,6 +29,7 @@ class View(BaseModel):
 
 
 class AssignmentView(View):
+    lock_retired_at: datetime | None = None
     assignment_id: UUID
     shipment_id: UUID
     unit_id: UUID
@@ -82,6 +83,7 @@ class EvaluationView(View):
     evaluated_at_wall: datetime
 
 class LoadView(View):
+    board_retired_at: datetime | None = None
     shipment_id: UUID
     external_id: str
     board_order_id: int | None
