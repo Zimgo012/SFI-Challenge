@@ -8,6 +8,7 @@ from schema.economics import ExpectedEconomics
 from schema.occupancy import OccupiedWindow
 from schema.unit_projection import UnitProjection
 from schema.profit_adjustment import ProfitAdjustmentPolicy
+from schema.scheduling import ReservationConflict, ScheduleConflict
 
 
 class DispatchPolicy(BaseModel):
@@ -32,6 +33,18 @@ class DispatchRejection(BaseModel):
     context: dict = Field(default_factory=dict)
 
 
+class DispatchUnitRejection(BaseModel):
+    unit_id: UUID
+    board_unit_id: int
+    unit_number: str
+    primary_rejection: DispatchRejection
+    rejection_reasons: list[str]
+    distance_miles: Decimal | None = None
+    available_at_pickup: bool
+    conflicting_assignments: list[ScheduleConflict] = Field(default_factory=list)
+    conflicting_reservations: list[ReservationConflict] = Field(default_factory=list)
+
+
 class DispatchEvaluation(BaseModel):
     external_id: str
     candidate_unit_id: UUID | None
@@ -42,6 +55,8 @@ class DispatchEvaluation(BaseModel):
     skipped_checks: list[str] = Field(default_factory=list)
     rejection_reasons: list[str] = Field(default_factory=list)
     rejection_details: list[DispatchRejection] = Field(default_factory=list)
+    primary_rejection: DispatchRejection | None = None
+    unit_rejections: list[DispatchUnitRejection] = Field(default_factory=list)
     capacity_warnings: list[dict] = Field(default_factory=list)
     capacity_units_for_window: int = 0
     economics: ExpectedEconomics

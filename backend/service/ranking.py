@@ -219,6 +219,8 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
             dispatch_rejection_details=checked.rejection_details if routing.routing_candidate_unit_id == unit.unit_id else [
                 rejection_detail('unit_not_board_selectable', 'location_passed', {'unit_id': unit.unit_id}),
             ],
+            dispatch_primary_rejection=checked.primary_rejection if routing.routing_candidate_unit_id == unit.unit_id else
+                rejection_detail('unit_not_board_selectable', 'location_passed', {'unit_id': unit.unit_id}),
         )
         scored.append((score, miles, unit.employee_code, match))
     scored.sort(key=lambda row: (not row[3].ranking_cash_requirements_met if context.policy.profit_weight else False,

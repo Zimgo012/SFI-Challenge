@@ -1,4 +1,6 @@
-from schema.dispatch_policy import DispatchRejection
+from collections import Counter
+
+from schema.dispatch_policy import DispatchRejection, DispatchUnitRejection
 
 # Stable codes remain suitable for filtering; messages/actions can be displayed
 # directly by clients. Group aliases that describe the same recovery step.
@@ -52,7 +54,9 @@ register('departure_in_past', 'The required deadhead departure is already past i
          'Choose a later pickup or a closer unit so deadhead travel can start before pickup.')
 register('pickup_arrival_unknown', 'The pickup arrival time cannot be verified.',
          'Sync the unit availability and projected location before evaluating travel time again.')
-register('assignment_window_overlap unit_schedule_unavailable', 'The selected unit cannot be verified as free for the full booking window.',
+register('assignment_window_overlap', 'The booking window overlaps an existing truck assignment.',
+         'Review conflicting assignment IDs and intervals; choose a non-overlapping pickup/delivery window.')
+register('unit_schedule_unavailable', 'A truck cannot be reserved for the full booking window.',
          'Review conflicting assignment IDs and intervals; choose a non-overlapping pickup/delivery window.')
 register('assignment_window_reserved', 'Another dispatch submission already holds this unit/window.',
          'Wait for that action to reconcile, then refresh availability; do not submit a duplicate reservation.')
@@ -71,6 +75,8 @@ register('unit_snapshot_stale_or_unknown terminal_snapshot_stale', 'The fleet sn
 register('no_terminal_capacity_for_window no_available_units_at_pickup_terminal',
          'No verified pickup-terminal unit is available for the requested booking window.',
          'Review roster availability, active assignments, and pending holds; choose another window or pickup hub.')
+register('no_feasible_units', 'Pickup-terminal trucks are blocked by different constraints.',
+         'Review the per-truck rejection reasons, then choose a suitable truck, pickup hub, or booking window.')
 register('terminal_capacity_unknown', 'The pickup terminal capacity has not been verified.',
          'Sync the terminal roster and capacity counts before dispatching.')
 register('terminal_capacity_discrepancy', 'Board capacity counts or terminal membership disagree with the local roster.',
@@ -97,6 +103,127 @@ def rejection_detail(code, check, context):
     ))
     return DispatchRejection(code=code, check=check, message=message,
                              suggested_action=action, context=context)
+
+
+def unit_rejection(route, common, max_deadhead, miles):
+    """Explain the truck's blocker before reporting consequences of that blocker."""
+    reasons = set(route.rejection_reasons)
+    if 'unit_status_unavailable' in reasons:
+        code, check = 'no_available_units_at_pickup_terminal', 'capacity_passed'
+    elif route.conflicting_assignments or 'assignment_window_overlap' in reasons:
+        code, check = 'assignment_window_overlap', 'schedule_passed'
+    elif route.conflicting_reservations or 'assignment_window_reserved' in reasons:
+        code, check = 'assignment_window_reserved', 'schedule_passed'
+    elif not route.available_at_pickup or 'unit_availability_unknown' in reasons:
+        code, check = 'no_available_units_at_pickup_terminal', 'capacity_passed'
+    else:
+        # Unknown positions do not prove excessive travel. Prefer the specific
+        # projection failure over derivative distance/arrival/profit failures.
+        location_codes = (
+            'prior_assignment_destination_unverified', 'unresolved_submission_location',
+            'booked_destination_unknown', 'projected_destination_unknown',
+            'fleet_projection_time_unknown', 'projection_before_fleet_snapshot',
+            'projected_pickup_terminal_mismatch', 'unit_coordinates_unknown_or_invalid',
+            'projected_location_unknown', 'projected_unit_unavailable',
+        )
+        code = next((item for item in location_codes if item in reasons), None)
+        check = 'location_passed'
+        if code is None and reasons & {'pickup_move_exceeds_limit', 'projected_pickup_move_exceeds_limit'}:
+            code, check = 'pickup_move_exceeds_limit', 'deadhead_passed'
+        # The legacy unit_available_after_pickup code also covers availability
+        # after *departure*. available_at_pickup above distinguishes those cases.
+        if code is None and reasons & {'unit_available_after_departure', 'unit_available_after_pickup'}:
+            code, check = 'cannot_reach_pickup_in_time', 'timing_passed'
+        if code is None:
+            code, check = 'unit_schedule_unavailable', 'schedule_passed'
+    return rejection_detail(code, check, common | {
+        'selection_scope': 'unit',
+        'unit_id': route.unit_id, 'board_unit_id': route.board_unit_id,
+        'unit_number': route.unit_number, 'unit_rejection_reasons': route.rejection_reasons,
+        'deadhead_miles': miles, 'max_deadhead_miles': max_deadhead,
+        'available_at_pickup': route.available_at_pickup,
+        'conflicting_assignments': [item.model_dump(mode='json') for item in route.conflicting_assignments],
+        'conflicting_reservations': [item.model_dump(mode='json') for item in route.conflicting_reservations],
+    })
+
+
+def set_primary_rejection(result, routing, common):
+    """Select a causal headline; retain all failed checks for auditing."""
+    distances = {item.projection.unit_id: item.projected_deadhead_miles for item in routing.chaining_units}
+    for route in routing.units:
+        if not route.eligible:
+            miles = distances.get(route.unit_id, route.distance_miles)
+            result.unit_rejections.append(DispatchUnitRejection(
+                unit_id=route.unit_id, board_unit_id=route.board_unit_id, unit_number=route.unit_number,
+                primary_rejection=unit_rejection(route, common, result.policy.max_deadhead_miles, miles),
+                rejection_reasons=route.rejection_reasons, distance_miles=miles,
+                available_at_pickup=route.available_at_pickup,
+                conflicting_assignments=route.conflicting_assignments,
+                conflicting_reservations=route.conflicting_reservations,
+            ))
+    details = {item.code: item for item in result.rejection_details}
+    # Offer/input and snapshot failures are independent of truck selection.
+    priority = (
+        'order_missing_from_board', 'order_not_open', 'offer_expired', 'offer_expiry_unknown',
+        'maximum_weight_exceeded', 'weight_unknown_or_invalid',
+        'unknown_origin_terminal_code', 'pickup_terminal_unresolved',
+        'pickup_coordinates_unknown_or_invalid', 'pickup_time_unknown', 'delivery_time_unknown',
+        'booking_times_unknown', 'invalid_pickup_delivery_window', 'insufficient_pickup_lead_time',
+        'terminal_capacity_unknown', 'terminal_snapshot_stale', 'unit_snapshot_stale_or_unknown',
+    )
+    primary = next((details[code] for code in priority if code in details), None)
+    if primary is None and result.rejection_details:
+        selected = next((item for item in routing.units if item.unit_id == result.candidate_unit_id), None)
+        if result.candidate_unit_id is not None and result.candidate_unit_id != routing.routing_candidate_unit_id:
+            primary = details.get('unit_not_board_selectable')
+        elif selected is not None and not selected.eligible:
+            primary = next(item.primary_rejection for item in result.unit_rejections if item.unit_id == selected.unit_id)
+            primary = primary.model_copy(update={'context': primary.context | {'selection_scope': 'board_selected_unit'}})
+        elif result.candidate_unit_id is None:
+            blocked = result.unit_rejections
+            if not routing.units:
+                primary = details.get('no_available_units_at_pickup_terminal')
+                if primary is not None:
+                    primary = primary.model_copy(update={'context': primary.context | {
+                        'selection_scope': 'pickup_terminal', 'units_considered': 0,
+                        'unit_rejection_counts': {}, 'blocked_unit_ids': [],
+                    }})
+            elif len(blocked) == len(routing.units):
+                counts = Counter(item.primary_rejection.code for item in blocked)
+                checks = {item.primary_rejection.check for item in blocked}
+                if len(counts) == 1:
+                    first = blocked[0].primary_rejection
+                    code, check = first.code, first.check
+                elif checks == {'schedule_passed'}:
+                    code, check = 'unit_schedule_unavailable', 'schedule_passed'
+                else:
+                    code, check = 'no_feasible_units', 'capacity_passed'
+                primary = rejection_detail(code, check, common | {
+                    'selection_scope': 'pickup_terminal', 'units_considered': len(routing.units),
+                    'unit_rejection_counts': dict(sorted(counts.items())),
+                    'blocked_unit_ids': [item.unit_id for item in blocked],
+                })
+            # Even one unknown current position prevents predicting the board's
+            # choice; another locally feasible truck does not fix that ambiguity.
+            if primary is None:
+                primary = details.get('available_unit_coordinates_unknown_or_invalid')
+        if primary is None:
+            fallback = (
+                'assignment_window_overlap', 'assignment_window_reserved',
+                'unit_not_board_selectable', 'maximum_deadhead_exceeded', 'pickup_move_exceeds_limit',
+                'cannot_reach_pickup_in_time', 'departure_in_past',
+                'terminal_capacity_discrepancy',
+                'minimum_margin_usd_not_met', 'minimum_margin_pct_not_met',
+                'entered_bid_required', 'entered_bid_invalid', 'expected_margin_unknown',
+            )
+            primary = next((details[code] for code in fallback if code in details), None)
+        if primary is None:
+            primary = min(result.rejection_details, key=lambda item: (item.check, item.code))
+    if primary is not None:
+        result.primary_rejection = primary
+        result.checks[primary.check] = False
+        result.rejection_reasons = [primary.code, *[code for code in result.rejection_reasons if code != primary.code]]
+        result.rejection_details = [primary, *[item for item in result.rejection_details if item.code != primary.code]]
 
 
 def add_feedback(result, shipment, routing, capacity, unit, reason_checks):
@@ -143,6 +270,7 @@ def add_feedback(result, shipment, routing, capacity, unit, reason_checks):
             contexts['schedule_passed'][field] = [item.model_dump(mode='json') for item in getattr(selected, field)]
     for code, check in reason_checks.items():
         result.rejection_details.append(rejection_detail(code, check, common | contexts[check]))
+    set_primary_rejection(result, routing, common)
     for warning in result.capacity_warnings:
         warning.update({
             'message': 'Fleet reconciliation reported a capacity or roster discrepancy.',

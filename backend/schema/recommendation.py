@@ -61,6 +61,7 @@ class RankedMatch(BaseModel):
     booking_ready: bool
     dispatch_rejection_reasons: list[str] = Field(default_factory=list)
     dispatch_rejection_details: list[DispatchRejection] = Field(default_factory=list)
+    dispatch_primary_rejection: DispatchRejection | None = None
 
 
 class RejectedUnit(BaseModel):

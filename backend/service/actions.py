@@ -76,9 +76,7 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
                 evaluation = save_evaluation(session, shipment, checked)
                 if not checked.eligible:
                     denial = ProductError(
-                        409, 'Dispatch rejected: ' + '; '.join(
-                            f'{item.message} ({item.code})' for item in checked.rejection_details
-                        ),
+                        409, f'Dispatch rejected: {checked.primary_rejection.message} ({checked.primary_rejection.code})',
                         evaluation=checked.model_dump(mode='json'),
                     )
                     add_activity(session, 'dispatch.rejected', denial.detail,
