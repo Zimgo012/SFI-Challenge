@@ -64,6 +64,21 @@ from the order detail API. Details refresh on live updates. Disconnects retain
 previous shipments; cleanup closes the stream and aborts reads. Late initial
 HTTP responses cannot overwrite newer WebSocket snapshots.
 
+Activity reads `/api/activity` using server-side pagination of 20 events, newest
+recorded time first. Exact order-ID and event-type filters apply across the
+complete history without downloading every page. Suggested event types cover
+submissions, lifecycle changes, assignments, discrepancies, and sync errors;
+custom exact event types can also be entered. Apply filters or Reset starts at
+page one. A centered details dialog shows the full message, identifiers,
+recorded/simulation timestamps, and structured context.
+
+Activity loads immediately and refreshes its current page on terminal/order
+WebSocket events and heartbeats. Burst events queue one follow-up read. Errors
+retain previous results and can be retried manually; page/filter changes and
+leaving the route abort requests and close streams. The backend has no
+dedicated Activity WebSocket, so event-only changes appear by the next upstream
+heartbeat even when there is no order or terminal change.
+
 The Load Board subscribes to `/api/loads/ws?order_type=open_bid&status=open` and
 shows only open bid opportunities. Orders disappear as they expire or change status.
 Snapshots, updates, and heartbeats replace the complete result set, including
@@ -161,9 +176,23 @@ origin via CORS or be served behind a same-origin reverse proxy.
 `VITE_*` values are exposed to the browser and
 must not contain secrets. See [Vite environment variables](https://vite.dev/guide/env-and-mode).
 
-`src/api/` contains one module per dispatcher resource: `loads`, `bids`,
-`terminals`, `fleet`, `shipments`, `activity`, `overview`, `system`, `orders`,
-and `health`. `endpoints.ts` centralizes routes; `types.ts` mirrors response
+`src/api/` groups each resource's requests, live subscriptions, request types,
+and response-type exports in one module:
+
+| Module | Responsibilities |
+| --- | --- |
+| `orders.ts` | Loads, booking actions, decisions, order stream, and expiration |
+| `bids.ts` | Bid records, combined bid history, and live bid-log updates |
+| `terminals.ts` | Terminal records and live capacity/status updates |
+| `fleet.ts` | Units, capacity, projections, and live fleet updates |
+| `shipments.ts` | Confirmed shipments and live tracking |
+| `activity.ts` | Activity requests, filters, and live event-log updates |
+| `overview.ts` | Dashboard overview |
+| `system.ts` | Simulation/system status |
+| `health.ts` | Backend health |
+
+`client.ts` contains shared fetch/query helpers. `endpoints.ts` centralizes
+routes; `types.ts` mirrors response
 fields from the backend Pydantic schemas, including nullable values, decimal
 strings, and UTC timestamp strings. Types describe expected data and do not
 perform runtime validation.

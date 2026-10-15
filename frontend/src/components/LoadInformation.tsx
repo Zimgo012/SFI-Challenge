@@ -1,4 +1,4 @@
-import type { LoadView } from '../api/types'
+import type { LoadView } from '../api/orders'
 import { amount, label, quantity, timestamp } from '../utils/load-format'
 import Field from './LoadField'
 

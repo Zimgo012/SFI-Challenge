@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getFleetUnit } from '../api/fleet'
-import type { UnitDetail, UnitProjection, UnitView } from '../api/types'
+import type { UnitDetail, UnitProjection, UnitView } from '../api/fleet'
 import { deliveryPhase } from '../utils/fleet'
 import { label, timestamp } from '../utils/load-format'
 import Field from './LoadField'

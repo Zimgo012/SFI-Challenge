@@ -1,4 +1,4 @@
-import type { ProjectedDelivery, UnitView } from '../api/types'
+import type { ProjectedDelivery, UnitView } from '../api/fleet'
 
 export function filterFleet(units: UnitView[], search: string, terminal: string, status: string) {
   const query = search.trim().toLowerCase()

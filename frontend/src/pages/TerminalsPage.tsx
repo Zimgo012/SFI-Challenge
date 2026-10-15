@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import { subscribeTerminalStatuses } from '../api/terminal-stream'
-import type { TerminalStreamState } from '../api/terminal-stream'
-import type { TerminalStatus } from '../api/terminals'
+import { subscribeTerminalStatuses } from '../api/terminals'
+import type { TerminalStatus, TerminalStreamState } from '../api/terminals'
 import EmptyPanel from '../components/EmptyPanel'
 import PageSection from '../components/PageSection'
 

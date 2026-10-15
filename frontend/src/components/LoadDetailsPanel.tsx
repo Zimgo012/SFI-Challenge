@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
-import type { LoadView } from '../api/types'
+import type { LoadView } from '../api/orders'
 import { label } from '../utils/load-format'
 import { isValidBidAmount } from '../utils/bid-amount'
 import LoadInformation from './LoadInformation'

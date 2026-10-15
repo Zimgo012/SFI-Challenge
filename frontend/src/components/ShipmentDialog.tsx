@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { getLoad } from '../api/loads'
-import type { LoadDetail, LoadView } from '../api/types'
+import { getLoad } from '../api/orders'
+import type { LoadDetail, LoadView } from '../api/shipments'
 import { label, timestamp } from '../utils/load-format'
 import { shipmentStage } from '../utils/shipments'
 import Field from './LoadField'

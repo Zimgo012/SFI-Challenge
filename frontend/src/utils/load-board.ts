@@ -1,4 +1,4 @@
-import type { LoadView } from '../api/types'
+import type { LoadView } from '../api/orders'
 
 export function getBidOpportunities(loads: LoadView[]) {
   return loads.filter((load) =>

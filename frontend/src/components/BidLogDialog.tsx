@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { BidView } from '../api/types'
+import type { BidView } from '../api/bids'
 import { amount, label, timestamp } from '../utils/load-format'
 import LoadInformation from './LoadInformation'
 import Field from './LoadField'

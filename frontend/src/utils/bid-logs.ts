@@ -1,4 +1,4 @@
-import type { BidView } from '../api/types'
+import type { BidView } from '../api/bids'
 
 export type BidDateField = 'created' | 'synced' | 'decision' | 'pickup' | 'delivery' | 'expires'
 export type BidSortField = 'order' | 'status' | 'route' | 'amount' | 'outcome' | 'request' | BidDateField

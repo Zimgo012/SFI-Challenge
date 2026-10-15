@@ -1,4 +1,4 @@
-import type { LoadView } from '../api/types'
+import type { LoadView } from '../api/shipments'
 
 export type ShipmentStatus = 'all' | 'accepted' | 'in_transit' | 'completed'
 export type ShipmentSort = 'created' | 'pickup' | 'delivery' | 'synced'

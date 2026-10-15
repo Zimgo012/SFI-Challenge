@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { subscribeFleet } from '../api/fleet-stream'
-import type { LiveFleetState } from '../api/fleet-stream'
+import { subscribeFleet } from '../api/fleet'
+import type { LiveFleetState } from '../api/fleet'
 import EmptyPanel from '../components/EmptyPanel'
 import FleetSchedule from '../components/FleetSchedule'
 import PageSection from '../components/PageSection'
