@@ -9,6 +9,7 @@ from schema.unit_projection import UnitProjection
 
 
 class DispatchPolicy(BaseModel):
+    enforce_margin: bool = True
     min_expected_margin_pct: Decimal = Field(default=Decimal('15'), ge=0, le=100, allow_inf_nan=False)
     min_expected_margin_usd: Decimal = Field(default=Decimal('0'), ge=0, max_digits=18, decimal_places=6, allow_inf_nan=False)
     max_deadhead_miles: Decimal = Field(default=Decimal('100'), ge=0, allow_inf_nan=False)
@@ -34,6 +35,7 @@ class DispatchEvaluation(BaseModel):
     policy: DispatchPolicy
     eligible: bool = False
     checks: dict[str, bool]
+    skipped_checks: list[str] = Field(default_factory=list)
     rejection_reasons: list[str] = Field(default_factory=list)
     rejection_details: list[DispatchRejection] = Field(default_factory=list)
     capacity_warnings: list[dict] = Field(default_factory=list)

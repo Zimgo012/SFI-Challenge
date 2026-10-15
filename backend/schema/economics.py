@@ -1,17 +1,83 @@
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
+
+
+class EconomicsSource(BaseModel):
+    method: str = 'unknown'
+    inputs: dict[str, str | None] = Field(default_factory=dict)
+    formula: str | None = None
+
+
+class EconomicsSources(BaseModel):
+    payout: EconomicsSource = Field(default_factory=EconomicsSource)
+    loaded_cost: EconomicsSource = Field(default_factory=EconomicsSource)
+    cost_per_mile: EconomicsSource = Field(default_factory=EconomicsSource)
+    projected_deadhead_miles: EconomicsSource = Field(default_factory=EconomicsSource)
+    projected_deadhead_cost: EconomicsSource = Field(default_factory=EconomicsSource)
+    total_cost: EconomicsSource = Field(default_factory=EconomicsSource)
+    gross_profit: EconomicsSource = Field(default_factory=EconomicsSource)
+    margin_pct: EconomicsSource = Field(default_factory=EconomicsSource)
+
+
+class MissingEconomicsInput(BaseModel):
+    field: str
+    code: str
+    message: str
 
 
 class ExpectedEconomics(BaseModel):
+    calculation_version: Literal['deterministic_v1'] = 'deterministic_v1'
+    currency: Literal['USD'] = 'USD'
+    payout: Decimal | None = None
     loaded_cost: Decimal | None = None
-    loaded_cost_source: Literal['board_loaded_cost', 'distance_times_cost_per_mile', 'unknown'] = 'unknown'
+    projected_deadhead_miles: Decimal | None = None
+    projected_deadhead_cost: Decimal | None = None
+    total_cost: Decimal | None = None
+    gross_profit: Decimal | None = None
+    margin_pct: Decimal | None = None
     cost_per_mile: Decimal | None = None
-    deadhead_cost: Decimal | None = None
-    expected_total_cost: Decimal | None = None
-    expected_payout: Decimal | None = None
-    payout_source: Literal['fixed_rate_offer', 'entered_bid', 'unknown'] = 'unknown'
-    expected_margin_usd: Decimal | None = None
-    expected_margin_pct: Decimal | None = None
-    missing_reasons: list[str] = Field(default_factory=list)
+    sources: EconomicsSources = Field(default_factory=EconomicsSources)
+    missing_inputs: list[MissingEconomicsInput] = Field(default_factory=list)
+
+    # Read-only compatibility fields share canonical values and cannot drift.
+    @computed_field
+    @property
+    def expected_payout(self) -> Decimal | None:
+        return self.payout
+
+    @computed_field
+    @property
+    def deadhead_cost(self) -> Decimal | None:
+        return self.projected_deadhead_cost
+
+    @computed_field
+    @property
+    def expected_total_cost(self) -> Decimal | None:
+        return self.total_cost
+
+    @computed_field
+    @property
+    def expected_margin_usd(self) -> Decimal | None:
+        return self.gross_profit
+
+    @computed_field
+    @property
+    def expected_margin_pct(self) -> Decimal | None:
+        return self.margin_pct
+
+    @computed_field
+    @property
+    def loaded_cost_source(self) -> str:
+        return self.sources.loaded_cost.method
+
+    @computed_field
+    @property
+    def payout_source(self) -> str:
+        return self.sources.payout.method
+
+    @computed_field
+    @property
+    def missing_reasons(self) -> list[str]:
+        return list(dict.fromkeys(item.code for item in self.missing_inputs))

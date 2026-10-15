@@ -157,7 +157,7 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
         score = (empty_score * policy.empty_miles_weight + continuity * policy.continuity_weight
                  + utilization * policy.utilization_weight) / (
                      policy.empty_miles_weight + policy.continuity_weight + policy.utilization_weight)
-        economics = expected_economics(shipment, miles, context.bid_rate)
+        economics = expected_economics(shipment, miles, context.bid_rate, projection=projection)
         match = RankedMatch(
             external_id=shipment.external_id, shipment_id=shipment.shipment_id,
             unit_id=unit.unit_id, board_unit_id=unit.board_unit_id, unit_number=unit.unit_number,
@@ -166,7 +166,7 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
             projected_latitude=projection.latitude, projected_longitude=projection.longitude,
             position_source=projection.source, source_assignment_id=projection.source_assignment_id,
             deadhead_miles=miles.quantize(Decimal('0.001')),
-            cost_per_mile=economics.cost_per_mile, deadhead_cost=economics.deadhead_cost,
+            cost_per_mile=economics.cost_per_mile, deadhead_cost=economics.projected_deadhead_cost,
             cost_missing_reason=None if economics.cost_per_mile is not None else 'cost_per_mile_unknown_or_invalid',
             economics=economics,
             empty_miles_score=empty_score.quantize(SIX_PLACES), continues_previous_route=continues,

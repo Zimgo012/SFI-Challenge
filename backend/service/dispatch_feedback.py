@@ -31,7 +31,7 @@ register('entered_bid_required entered_bid_invalid', 'A positive entered bid is 
          'Enter the proposed bid_rate and request a new evaluation.')
 register('offered_rate_unknown_or_invalid zero_payout_percentage_undefined', 'The offered payout is missing, invalid, or zero.',
          'Sync a positive fixed-rate payout from the board or choose another offer.')
-register('cost_per_mile_unknown_or_invalid loaded_cost_unknown_or_invalid', 'Required loaded-cost or cost-per-mile data is missing or invalid.',
+register('cost_per_mile_unknown_or_invalid loaded_cost_unknown_or_invalid loaded_distance_unknown_or_invalid', 'Required loaded-cost or cost-per-mile data is missing or invalid.',
          'Sync valid cost inputs; loaded cost requires estimated_cost or distance_miles and cost_per_mile.')
 register('maximum_deadhead_exceeded pickup_move_exceeds_limit projected_pickup_move_exceeds_limit',
          'The unit-to-pickup distance exceeds the configured maximum.',
@@ -104,7 +104,7 @@ def add_feedback(result, shipment, routing, capacity, unit, reason_checks):
         'offer_open_unexpired': {'status': shipment.status, 'expires_at': shipment.expires_at,
                                 'simulated_now': result.evaluated_at_sim},
         'weight_passed': {'weight_lbs': shipment.weight_lbs, 'max_weight_lbs': result.policy.max_weight_lbs},
-        'pricing_passed': {'expected_margin_usd': result.economics.expected_margin_usd,
+        'pricing_passed': {'expected_margin_usd': result.economics.gross_profit,
                            'expected_margin_pct': result.margin_pct_for_policy,
                            'min_expected_margin_usd': result.policy.min_expected_margin_usd,
                            'min_expected_margin_pct': result.policy.min_expected_margin_pct,

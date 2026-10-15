@@ -36,6 +36,7 @@ SCHEDULE_REASONS = {
 def dispatch_policy() -> DispatchPolicy:
     config = dotenv_values(PROJECT_ROOT / '.env')
     fields = {
+        'enforce_margin': ('ENFORCE_MARGIN', 'true'),
         'min_expected_margin_pct': ('MIN_EXPECTED_MARGIN_PCT', '15'),
         'min_expected_margin_usd': ('MIN_EXPECTED_MARGIN_USD', '0'),
         'max_weight_lbs': ('MAX_WEIGHT_LBS', '44000'),
@@ -72,7 +73,7 @@ def evaluate_dispatch(session: Session, shipment: Shipment, bid_rate=None, unit_
     result = DispatchEvaluation(
         external_id=shipment.external_id, candidate_unit_id=candidate_id, evaluated_at_sim=now,
         policy=policy, checks={key: True for key in CHECKS},
-        economics=expected_economics(shipment, miles, bid_rate), deadhead_miles=miles, projection=projection,
+        economics=expected_economics(shipment, miles, bid_rate, projection=projection), deadhead_miles=miles, projection=projection,
     )
 
     reason_checks = {}
@@ -133,13 +134,16 @@ def evaluate_dispatch(session: Session, shipment: Shipment, bid_rate=None, unit_
         fail('deadhead_passed', 'maximum_deadhead_exceeded')
 
     economics = result.economics
-    if economics.expected_margin_usd is None or economics.expected_payout is None or economics.expected_payout <= 0:
+    if economics.gross_profit is not None and economics.payout is not None and economics.payout > 0:
+        result.margin_pct_for_policy = economics.gross_profit / economics.payout * Decimal('100')
+    if not policy.enforce_margin:
+        result.skipped_checks.append('pricing_passed')
+    elif result.margin_pct_for_policy is None:
         fail('pricing_passed', 'expected_margin_unknown')
         for reason in economics.missing_reasons:
             fail('pricing_passed', reason)
     else:
-        result.margin_pct_for_policy = economics.expected_margin_usd / economics.expected_payout * Decimal('100')
-        if economics.expected_margin_usd < policy.min_expected_margin_usd:
+        if economics.gross_profit < policy.min_expected_margin_usd:
             fail('pricing_passed', 'minimum_margin_usd_not_met')
         if result.margin_pct_for_policy < policy.min_expected_margin_pct:
             fail('pricing_passed', 'minimum_margin_pct_not_met')
@@ -204,10 +208,10 @@ def save_evaluation(session: Session, shipment: Shipment, result: DispatchEvalua
     economics = result.economics
     row = Evaluation(
         shipment_id=shipment.shipment_id, candidate_unit_id=result.candidate_unit_id,
-        payout=economics.expected_payout, loaded_cost=economics.loaded_cost,
-        deadhead_miles=result.deadhead_miles, deadhead_cost=economics.deadhead_cost,
-        total_cost=economics.expected_total_cost, profit_usd=economics.expected_margin_usd,
-        margin_pct=result.margin_pct_for_policy, cost_source=economics.loaded_cost_source,
+        payout=economics.payout, loaded_cost=economics.loaded_cost,
+        deadhead_miles=result.deadhead_miles, deadhead_cost=economics.projected_deadhead_cost,
+        total_cost=economics.total_cost, profit_usd=economics.gross_profit,
+        margin_pct=result.margin_pct_for_policy, cost_source=economics.sources.loaded_cost.method,
         pricing_passed=result.checks['pricing_passed'], capacity_passed=result.checks['capacity_passed'],
         schedule_passed=result.checks['schedule_passed'], weight_passed=result.checks['weight_passed'],
         location_passed=result.checks['location_passed'], offer_open_unexpired=result.checks['offer_open_unexpired'],
