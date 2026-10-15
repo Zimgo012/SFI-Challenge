@@ -14,9 +14,10 @@ type LoadDetailsPanelProps = {
   onCheckStatus?: () => void
   onClose: () => void
   onSubmitBid: (bidRate: string) => Promise<void>
+  onAccept: () => Promise<void>
 }
 
-export default function LoadDetailsPanel({ load, initialBidOpen, canSubmit, pending, message, onCheckStatus, onClose, onSubmitBid }: LoadDetailsPanelProps) {
+export default function LoadDetailsPanel({ load, initialBidOpen, canSubmit, pending, message, onCheckStatus, onClose, onSubmitBid, onAccept }: LoadDetailsPanelProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const bidInputRef = useRef<HTMLInputElement>(null)
   const [bidOpen, setBidOpen] = useState(initialBidOpen)
@@ -76,7 +77,9 @@ export default function LoadDetailsPanel({ load, initialBidOpen, canSubmit, pend
 
           {message && <div role="alert" className="alert alert-warning"><p>{message}</p>{onCheckStatus && <button type="button" className="btn btn-sm btn-outline" onClick={onCheckStatus}>Check status</button>}</div>}
 
-          {bidOpen ? (
+          {load.order_type === 'fixed_rate' ? (
+            <button type="button" className="btn btn-primary w-full" disabled={!canSubmit || pending} onClick={() => void onAccept()}>{pending ? 'Accepting…' : 'Accept fixed-rate offer'}</button>
+          ) : bidOpen ? (
             <form className="space-y-4 rounded-xl border border-primary/25 bg-primary/5 p-4" onSubmit={submitBid}>
               <div>
                 <h3 className="font-semibold">Place your bid</h3>

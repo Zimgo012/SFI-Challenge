@@ -102,13 +102,17 @@ simulator clock, with dispatcher status as fallback; production uses dispatcher
 status. Settings speed changes trigger immediate resynchronization. Failed
 reads retain the last estimate with a sync-delayed indicator.
 
-The Load Board subscribes to `/api/loads/ws?order_type=open_bid&status=open` and
-shows only open bid opportunities. Orders disappear as they expire or change status.
+The Load Board subscribes to `/api/loads/ws?order_type=all&status=open` and
+shows open fixed-rate and open-bid opportunities. The order-type selector filters
+between both types, fixed rate, and open bid without reconnecting. Each card
+labels its type; fixed-rate cards also show the offered payout. Orders disappear
+as they expire or change status.
 Snapshots, updates, and heartbeats replace the complete result set, including
 removing orders that no longer match. Compact cards show pickup/delivery
 locations, distance, cargo weight, pickup time, delivery time, and offer expiry.
 Accept/decline controls use a dating-card layout. For open-bid orders, Accept
-opens a bid form; only submitting that form sends a bid. Decline submits the
+opens a bid form; only submitting that form sends a bid. For fixed-rate offers,
+Accept submits the acceptance directly. Decline submits the
 documented decline action. Expired orders and disconnected streams disable
 submissions. More information opens a sliding right-side dialog with pricing,
 costs, assignment, location, and sync information, keyboard focus trapping,
@@ -122,7 +126,7 @@ success. Uncertain failures are not retried automatically; Check status reads
 the order detail and only re-enables an open order after recorded failed actions
 are reconciled. Successful bids appear in Bid Logs; they are not confirmed bookings.
 
-Bid Logs combines `/api/bids` with all pages of open-bid order history from
+Bid Logs combines `/api/bids` with all pages of fixed-rate and open-bid history from
 `/api/loads?status=all&include_missing=true`, excluding orders still open. This
 includes expired and declined orders with no bid submission, as well as
 accepted, pending, lost, and completed records. Missing bid data is labeled as
@@ -146,7 +150,12 @@ chosen date field. Created uses `board_created_at`; last synced uses
 `last_synced_at`. Received is disabled because the API does not provide a
 first-received timestamp. Filter and sort changes reset pagination to page one.
 
-Bid Logs subscribes to `/api/loads/ws?order_type=open_bid&status=all`. Snapshots,
+The Order type column labels each record as Fixed rate or Open bid and can be
+sorted. Bid / rate shows the offered payout for fixed-rate orders and the
+submitted bid amount for open-bid orders. Fixed-rate records do not display a
+bid outcome.
+
+Bid Logs subscribes to `/api/loads/ws?order_type=all&status=all`. Snapshots,
 updates, and heartbeats automatically refresh the history APIs because bid
 amounts and submission results are not included in the order stream. Reads are
 serialized, and bursts of messages queue one follow-up refresh. Sorting and

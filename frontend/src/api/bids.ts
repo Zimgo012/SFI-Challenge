@@ -30,7 +30,7 @@ export async function getBidLogs(options: RequestInit = {}): Promise<BidView[]> 
   const records = new Map(bids.map((bid) => [bid.order.external_id, bid]))
   offset = 0
   while (true) {
-    const response = await getLoads({ order_type: 'open_bid', status: 'all', include_missing: true, limit: 200, offset }, options)
+    const response = await getLoads({ status: 'all', include_missing: true, limit: 200, offset }, options)
     if (!response.ok) throw new Error(`Unable to load order history (HTTP ${response.status}).`)
     const page: Page<LoadView> = await response.json()
     if (!Array.isArray(page.items) || !Number.isFinite(page.total)) {
@@ -42,7 +42,7 @@ export async function getBidLogs(options: RequestInit = {}): Promise<BidView[]> 
         action_id: null,
         bid_rate: null,
         request_status: null,
-        outcome: 'not_recorded',
+        outcome: order.order_type === 'fixed_rate' ? 'not_applicable' : 'not_recorded',
         decision_at: order.bid_decision_at,
         order,
       })
@@ -51,7 +51,7 @@ export async function getBidLogs(options: RequestInit = {}): Promise<BidView[]> 
     if (page.items.length === 0 || offset >= page.total) break
   }
 
-  return [...records.values()].filter((bid) => bid.order.order_type === 'open_bid' && bid.order.status !== 'open')
+  return [...records.values()].filter((bid) => ['fixed_rate', 'open_bid'].includes(bid.order.order_type) && bid.order.status !== 'open')
 }
 
 export interface LiveBidLogsState {
@@ -105,7 +105,7 @@ export function subscribeBidLogs(onChange: (state: LiveBidLogsState) => void): (
     }
   }
 
-  const unsubscribe = subscribeLoads({ order_type: 'open_bid', status: 'all' }, (state) => {
+  const unsubscribe = subscribeLoads({ order_type: 'all', status: 'all' }, (state) => {
     if (disposed) return
     connection = state.connection
     streamError = state.error

@@ -189,7 +189,7 @@ export class LoadDecisionError extends Error {
 // Never retry booking actions automatically: a failed connection can hide success.
 export async function submitLoadDecision(
   externalId: string,
-  decision: 'bid' | 'decline',
+  decision: 'accept' | 'bid' | 'decline',
   bidRate?: string,
 ): Promise<ActionResult> {
   if (decision === 'bid' && (!bidRate || !isValidBidAmount(bidRate))) {
@@ -199,7 +199,7 @@ export async function submitLoadDecision(
   try {
     response = decision === 'bid'
       ? await bidOnLoad(externalId, { bid_rate: bidRate as string })
-      : await declineLoad(externalId)
+      : decision === 'accept' ? await acceptLoad(externalId) : await declineLoad(externalId)
   } catch {
     throw new LoadDecisionError('The submission outcome is unknown. Wait for reconciliation before trying again.', true)
   }

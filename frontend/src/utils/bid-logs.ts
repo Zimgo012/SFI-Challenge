@@ -1,7 +1,7 @@
 import type { BidView } from '../api/bids'
 
 export type BidDateField = 'created' | 'synced' | 'decision' | 'pickup' | 'delivery' | 'expires'
-export type BidSortField = 'order' | 'status' | 'route' | 'amount' | 'outcome' | 'request' | BidDateField
+export type BidSortField = 'order' | 'type' | 'status' | 'route' | 'amount' | 'outcome' | 'request' | BidDateField
 export type SortDirection = 'asc' | 'desc'
 export type BidStatusFilter = 'all' | 'accepted' | 'declined' | 'rejected' | 'expired' | 'pending' | 'lost' | 'in_transit' | 'completed' | 'unknown'
 
@@ -45,9 +45,13 @@ export function getBidLogPage(bids: BidView[], requestedPage: number) {
 function sortValue(bid: BidView, field: BidSortField): string | number | null {
   switch (field) {
     case 'order': return bid.order.external_id
+    case 'type': return bid.order.order_type
     case 'status': return bid.order.status
     case 'route': return `${bid.order.origin_terminal_code ?? ''} ${bid.order.destination_terminal_code ?? ''}`.trim() || null
-    case 'amount': return bid.bid_rate === null ? null : Number(bid.bid_rate)
+    case 'amount': {
+      const rate = bid.order.order_type === 'fixed_rate' ? bid.order.offered_rate : bid.bid_rate
+      return rate === null ? null : Number(rate)
+    }
     case 'outcome': return bid.outcome
     case 'request': return bid.request_status
     default: {

@@ -9,9 +9,10 @@ import type { BidDateField, BidSortField, BidStatusFilter, SortDirection } from 
 
 const columns: Array<{ field: BidSortField; label: string }> = [
   { field: 'order', label: 'Order' },
+  { field: 'type', label: 'Order type' },
   { field: 'status', label: 'Order status' },
   { field: 'route', label: 'Route' },
-  { field: 'amount', label: 'Bid amount' },
+  { field: 'amount', label: 'Bid / rate' },
   { field: 'outcome', label: 'Outcome' },
   { field: 'request', label: 'Submission status' },
   { field: 'decision', label: 'Decision time' },
@@ -85,7 +86,7 @@ export default function BidLogsPage() {
     : column)
 
   return (
-    <PageSection title="Bid Logs" description="Review non-open bid orders and their outcomes. Logs update automatically.">
+    <PageSection title="Bid Logs" description="Review non-open fixed-rate and open-bid orders and their outcomes. Logs update automatically.">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <p role="status" className="text-sm text-base-content/65">
           {bids === null ? 'Loading bid logs…' : `${filteredBids.length} of ${bids.length} records`}
@@ -186,20 +187,23 @@ export default function BidLogsPage() {
               <tbody>
                 {pagination.records.map((bid) => {
                   const date = getBidDate(bid, dateField)
+                  const fixedRate = bid.order.order_type === 'fixed_rate'
+                  const rate = fixedRate ? bid.order.offered_rate : bid.bid_rate
                   return (
                   <tr key={bid.action_id ?? bid.order.external_id} className="hover:bg-base-200/60">
                     <th scope="row" className="font-normal">
                       <p className="font-semibold text-primary">{bid.order.external_id}</p>
                     </th>
+                    <td><span className="badge badge-sm badge-outline whitespace-nowrap">{fixedRate ? 'Fixed rate' : 'Open bid'}</span></td>
                     <td>
                       <span className="badge badge-sm badge-soft badge-primary capitalize whitespace-nowrap">{bid.order.status.replaceAll('_', ' ')}</span>
-                      <p className={`mt-1 text-xs capitalize ${bid.outcome === 'rejected' ? 'text-error' : 'text-base-content/60'}`}>{bid.outcome.replaceAll('_', ' ')}</p>
+                      {!fixedRate && <p className={`mt-1 text-xs capitalize ${bid.outcome === 'rejected' ? 'text-error' : 'text-base-content/60'}`}>{bid.outcome.replaceAll('_', ' ')}</p>}
                     </td>
                     <td className="whitespace-nowrap">
                       {bid.order.origin_terminal_code ?? 'Unknown'} → {bid.order.destination_terminal_code ?? 'Unknown'}
                     </td>
                     <td className="whitespace-nowrap font-semibold tabular-nums">
-                      {bid.bid_rate === null ? '—' : currency.format(Number(bid.bid_rate))}
+                      {rate === null ? '—' : currency.format(Number(rate))}
                     </td>
                     <td className="whitespace-nowrap text-xs">
                       {date && !Number.isNaN(Date.parse(date)) ? (

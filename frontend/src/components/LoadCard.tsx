@@ -18,7 +18,10 @@ export default function LoadCard({ load, disabled, pending, onAccept, onDecline,
   return (
     <article className="card h-full min-w-0 border border-base-300 bg-base-100">
       <div className="card-body gap-4 p-5">
-        <p className="truncate text-xs text-base-content/60" title={load.external_id}>{load.external_id}</p>
+        <div className="flex items-center justify-between gap-3">
+          <p className="min-w-0 truncate text-xs text-base-content/60" title={load.external_id}>{load.external_id}</p>
+          <span className="badge badge-sm badge-soft badge-primary shrink-0">{load.order_type === 'fixed_rate' ? 'Fixed rate' : 'Open bid'}</span>
+        </div>
         <h2 className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-base font-semibold">
           <span className="min-w-0 break-words"><span className="mb-1 block text-xs font-normal text-base-content/60">From</span>{origin}</span>
           <span aria-hidden="true" className="text-primary">→</span>
@@ -29,6 +32,8 @@ export default function LoadCard({ load, disabled, pending, onAccept, onDecline,
           <dt className="text-sm text-base-content/65">Estimated total cost</dt>
           <dd className="text-xl font-bold tabular-nums text-primary">{load.estimated_total_cost === null ? 'Unavailable' : amount(load.estimated_total_cost)}</dd>
         </dl>
+
+        {load.order_type === 'fixed_rate' && <dl className="flex items-center justify-between gap-3 text-sm"><dt className="text-base-content/65">Offered rate</dt><dd className="font-semibold tabular-nums">{amount(load.offered_rate)}</dd></dl>}
 
         <dl className="grid grid-cols-2 gap-3">
           <Field title="Distance">{quantity(load.distance_miles, 'mi')}</Field>
@@ -53,7 +58,7 @@ export default function LoadCard({ load, disabled, pending, onAccept, onDecline,
             <button type="button" className="btn btn-circle btn-outline btn-error size-10" disabled={disabled} onClick={onDecline} title="Decline" aria-label={`Decline order ${load.external_id}`}>
               {pending ? <span className="loading loading-spinner loading-xs" aria-hidden="true" /> : <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-5"><path strokeLinecap="round" d="m6 6 12 12M18 6 6 18" /></svg>}
             </button>
-            <button type="button" className="btn btn-circle btn-primary size-10" disabled={disabled} onClick={onAccept} title="Accept and place a bid" aria-haspopup="dialog" aria-label={`Accept order ${load.external_id} and enter a bid`}>
+            <button type="button" className="btn btn-circle btn-primary size-10" disabled={disabled} onClick={onAccept} title={load.order_type === 'fixed_rate' ? 'Accept fixed-rate offer' : 'Accept and place a bid'} aria-haspopup={load.order_type === 'open_bid' ? 'dialog' : undefined} aria-label={load.order_type === 'fixed_rate' ? `Accept fixed-rate order ${load.external_id}` : `Accept order ${load.external_id} and enter a bid`}>
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-5"><path strokeLinecap="round" strokeLinejoin="round" d="m5 12 4 4L19 6" /></svg>
             </button>
           </div>

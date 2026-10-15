@@ -2,7 +2,7 @@ import { Link } from 'react-router'
 import PageSection from '../components/PageSection'
 
 const summaries = [
-  { title: 'Live opportunities', path: '/loads', description: 'Open opportunities to bid on.' },
+  { title: 'Live opportunities', path: '/loads', description: 'Open fixed-rate offers and bid opportunities.' },
   { title: 'Fleet capacity', path: '/terminals', description: 'Available capacity across your hubs.' },
   { title: 'Pending bids', path: '/bids', description: 'Submitted bids awaiting a result.' },
   { title: 'Active shipments', path: '/shipments', description: 'Confirmed bookings through delivery.' },
