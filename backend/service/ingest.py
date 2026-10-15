@@ -2,6 +2,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal
+from weakref import WeakKeyDictionary
 
 import httpx
 from pydantic import TypeAdapter
@@ -154,11 +155,12 @@ def persist_snapshot(
     log_discrepancies(capacity)
 
 
-async def ingest(
+async def _ingest(
     external_api_url: str,
     *,
     engine: Engine | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
+    tracked_order_ids: set[str] | None = None,
 ) -> list[BoardOrder]:
     """Fetch and validate board state, then atomically upsert it locally."""
     clock_received_at = None
@@ -178,7 +180,7 @@ async def ingest(
             fetch('terminals'), fetch('orders?status=all'),
         )
         orders = TypeAdapter(list[BoardOrder]).validate_python(orders_data)
-        orders, missing_order_ids = await reconcile_known_orders(client, engine, orders)
+        orders, missing_order_ids = await reconcile_known_orders(client, engine, orders, tracked_order_ids)
         # Order reads can advance delivery lifecycle on the board. Refresh the
         # roster afterwards so position, availability, and re-homing are current.
         fleet_data, clock_data = await asyncio.gather(
@@ -204,3 +206,16 @@ async def ingest(
             len(missing_order_ids),
         )
     return orders
+
+
+# Periodic, WebSocket, and action-triggered snapshots must not overtake one another.
+# Keep locks local to each event loop, including isolated test/application loops.
+_sync_locks = WeakKeyDictionary()
+
+
+async def ingest(external_api_url: str, *, engine=None, transport=None, tracked_order_ids=None):
+    loop = asyncio.get_running_loop()
+    lock = _sync_locks.setdefault(loop, asyncio.Lock())
+    async with lock:
+        return await _ingest(external_api_url, engine=engine, transport=transport,
+                             tracked_order_ids=tracked_order_ids)

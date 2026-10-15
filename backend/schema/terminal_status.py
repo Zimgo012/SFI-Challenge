@@ -21,6 +21,8 @@ class TerminalStatus(BaseModel):
     board_total_units: int | None
     board_available_units: int | None
     board_assigned_units: int | None
+    utilization_pct: Decimal | None = None
+    available_pct: Decimal | None = None
     consistent: bool | None
     discrepancies: list[dict]
     as_of_sim_time: datetime | None

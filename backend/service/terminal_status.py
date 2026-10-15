@@ -3,6 +3,7 @@ import json
 import logging
 from contextlib import suppress
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
 
 import anyio
 from fastapi import WebSocket, WebSocketDisconnect
@@ -47,6 +48,12 @@ def terminal_statuses(session: Session) -> list[TerminalStatus]:
             board_total_units=capacity.board_total_units if capacity else None,
             board_available_units=capacity.board_available_units if capacity else None,
             board_assigned_units=capacity.board_assigned_units if capacity else None,
+            utilization_pct=(Decimal(capacity.local_assigned_units) * 100 / capacity.local_total_units).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP,
+            ) if capacity and capacity.board_total_units is not None and capacity.local_total_units > 0 else None,
+            available_pct=(Decimal(capacity.local_available_units) * 100 / capacity.local_total_units).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP,
+            ) if capacity and capacity.board_total_units is not None and capacity.local_total_units > 0 else None,
             consistent=not capacity.discrepancies if capacity else None,
             discrepancies=capacity.discrepancies if capacity else [],
             as_of_sim_time=utc(capacity.as_of_sim_time) if capacity else None,

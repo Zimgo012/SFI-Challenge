@@ -12,6 +12,8 @@ from service.ingest import ingest as call_external_api
 from service.order_stream import consume_orders
 from service.expiration import monitor_expirations
 from service.system_state import connection_state
+from service.periodic_sync import periodic_sync, sync_settings
+from service.history_import import sync_history_if_changed
 
 logger = logging.getLogger(__name__)
 ENV_FILE = Path(__file__).resolve().parent / '.env'
@@ -23,23 +25,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     load_dotenv(ENV_FILE, override=False)
     external_api_url = os.getenv('EXTERNAL_API_URL', '').strip()
 
+    settings = sync_settings()
+    # A configured, invalid CSV fails startup rather than silently serving partial history.
+    await asyncio.to_thread(sync_history_if_changed)
     orders_task = None
     expiration_task = None
+    sync_task = None
     if external_api_url:
         connection_state.set('connecting')
         await call_external_api(external_api_url)
-        orders_task = asyncio.create_task(consume_orders(external_api_url), name='board-orders')
-        app.state.orders_task = orders_task
+        if settings.websocket_enabled:
+            orders_task = asyncio.create_task(consume_orders(external_api_url), name='board-orders')
+            app.state.orders_task = orders_task
+        else:
+            connection_state.set('disabled')
         expiration_task = asyncio.create_task(monitor_expirations(), name='offer-expirations')
         app.state.expiration_task = expiration_task
     else:
         connection_state.set('disabled')
         logger.info('EXTERNAL_API_URL is unset; skipping external API startup hook.')
 
+    sync_task = asyncio.create_task(periodic_sync(external_api_url or None, settings.interval_seconds), name='board-sync')
+    app.state.sync_task = sync_task
     try:
         yield
     finally:
-        tasks = [task for task in (orders_task, expiration_task) if task is not None]
+        tasks = [task for task in (orders_task, expiration_task, sync_task) if task is not None]
         for task in tasks:
             task.cancel()
         for task in tasks:

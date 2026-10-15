@@ -34,6 +34,8 @@ async def product_error(request: Request, exc: ProductError):
     content = {'detail': exc.detail}
     if exc.evaluation is not None:
         content['evaluation'] = exc.evaluation
+    if exc.feedback is not None:
+        content['feedback'] = exc.feedback
     return JSONResponse(status_code=exc.status_code, content=content)
 
 

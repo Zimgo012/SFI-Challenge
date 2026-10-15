@@ -162,7 +162,25 @@ async def execute_action(engine: Engine, external_id: str, kind: str, request: A
             message = 'Board rejected the action'
         request_status = 'failed' if response.status_code < 500 else 'unknown'
         await asyncio.to_thread(finish_action, engine, action_id, request_status, message, response.status_code)
-        raise ProductError(response.status_code if 400 <= response.status_code < 500 else 502, message)
+        feedback = None
+        if response.status_code in (400, 404, 409):
+            sync_pending = False
+            try:
+                await ingest(url, engine=engine, tracked_order_ids={external_id})
+            except Exception as exc:
+                sync_pending = True
+                await asyncio.to_thread(record_system_event, engine, 'sync.error', type(exc).__name__)
+            refreshed = await asyncio.to_thread(result, engine, external_id, action_id, sync_pending)
+            feedback = {
+                'code': 'board_rejected', 'source': 'board', 'board_http_status': response.status_code,
+                'suggested_action': ('State refresh failed; restore board connectivity and sync before retrying.'
+                                     if sync_pending else
+                                     'Review the refreshed order, fleet capacity, and evaluation before choosing a new action.'),
+                'state_refreshed': not sync_pending,
+                'action_result': refreshed.model_dump(mode='json'),
+            }
+        raise ProductError(response.status_code if 400 <= response.status_code < 500 else 502,
+                           message, feedback=feedback)
     try:
         body = BoardActionResponse.model_validate(response.json(parse_float=Decimal))
         if not body.ok or body.order.external_id != external_id:
@@ -185,7 +203,7 @@ async def execute_action(engine: Engine, external_id: str, kind: str, request: A
         raise ProductError(502, 'Board accepted the request; local reconciliation is required') from exc
     sync_pending = False
     try:
-        await ingest(url, engine=engine)
+        await ingest(url, engine=engine, tracked_order_ids={external_id})
     except Exception as exc:
         sync_pending = True
         await asyncio.to_thread(record_system_event, engine, 'sync.error', type(exc).__name__)
