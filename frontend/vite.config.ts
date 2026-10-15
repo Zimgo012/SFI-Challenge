@@ -5,11 +5,18 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_')
   const target = env.VITE_API_BASE_URL?.trim() || 'http://127.0.0.1:8000'
+  const simulationEnv = loadEnv(mode, process.cwd(), 'SIMULATION_')
+  const simulationTarget = simulationEnv.SIMULATION_API_URL?.trim() || 'http://127.0.0.1:8087'
 
   return {
     plugins: [react(), tailwindcss()],
     server: {
       proxy: {
+        '/__simulation/clock': {
+          target: simulationTarget,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/__simulation\/clock/, '/simulation/clock'),
+        },
         '/api': { target, changeOrigin: true, ws: true },
         '/orders/': { target, changeOrigin: true },
         '/health': { target, changeOrigin: true },

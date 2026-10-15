@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router'
 import { navigation } from '../config/navigation'
 import ThemeToggle from '../components/ThemeToggle'
+import SimulationClock from '../components/SimulationClock'
 
 export default function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(() =>
@@ -48,7 +49,7 @@ export default function AppLayout() {
         </nav>
       </aside>
       <div className="min-w-0">
-        <header className="flex min-h-18 items-center justify-between gap-4 border-b border-base-300 bg-base-100 px-6 py-4 lg:px-10">
+        <header className="sticky top-0 z-20 flex min-h-18 flex-wrap items-center justify-between gap-4 border-b border-base-300 bg-base-100 px-6 py-4 lg:px-10">
           <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
@@ -66,7 +67,10 @@ export default function AppLayout() {
             </button>
             <p className="truncate text-sm font-medium">Operations / {currentPage?.label ?? 'Page not found'}</p>
           </div>
-          <ThemeToggle />
+          <div className="flex w-full items-center justify-between gap-4 sm:w-auto sm:justify-end">
+            <SimulationClock />
+            <ThemeToggle />
+          </div>
         </header>
         <main id="main-content" ref={mainRef} tabIndex={-1} className="mx-auto max-w-7xl p-6 outline-none lg:p-10">
           <Outlet />

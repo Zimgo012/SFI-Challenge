@@ -22,6 +22,7 @@ Open the local URL printed by Vite. `/` redirects to `/dashboard`.
 | Fleet & Schedule | `/fleet` | Inspect individual units and assignment timelines. |
 | Shipments | `/shipments` | Track confirmed bookings through delivery. |
 | Activity | `/activity` | Review decisions, submissions, results, and errors. |
+| Settings | `/settings` | Temporarily adjust simulator speed during local development. |
 
 Page components live in `src/pages/`. `src/layouts/AppLayout.tsx` provides
 shared navigation with active states; `src/config/navigation.ts` defines its
@@ -78,6 +79,28 @@ retain previous results and can be retried manually; page/filter changes and
 leaving the route abort requests and close streams. The backend has no
 dedicated Activity WebSocket, so event-only changes appear by the next upstream
 heartbeat even when there is no order or terminal change.
+
+Settings is a temporary local-development page with a current speed/clock readout,
+speed presets, and a custom multiplier from 1 to 100,000. Changes are sent only
+when Apply speed is selected. The board's `POST /simulation/clock` also resets
+its simulation time to current real time; it does not change the wall-clock
+arrival frequency of new orders. Other pages reflect the new speed after the
+dispatcher ingests the next clock sample.
+
+Set `SIMULATION_API_URL` in `.env` to the simulator origin (default
+`http://127.0.0.1:8087`, matching the local dispatcher configuration). Vite
+proxies `/__simulation/clock` to `/simulation/clock` on that origin, keeping
+simulator controls separate from dispatcher requests. Restart Vite after
+changing this value. This server-side variable is not exposed as a Vite client
+environment variable. Production builds show the temporary controls as
+unavailable. Settings does not change the dispatcher database directly.
+
+The shared sticky header displays a ticking simulation clock in UTC with its
+speed multiplier. It advances using monotonic elapsed time and reported speed,
+resyncing every 10 seconds and when returning to the tab. Local demos read the
+simulator clock, with dispatcher status as fallback; production uses dispatcher
+status. Settings speed changes trigger immediate resynchronization. Failed
+reads retain the last estimate with a sync-delayed indicator.
 
 The Load Board subscribes to `/api/loads/ws?order_type=open_bid&status=open` and
 shows only open bid opportunities. Orders disappear as they expire or change status.

@@ -6,4 +6,5 @@ export const navigation = [
   { label: 'Fleet & Schedule', path: '/fleet' },
   { label: 'Shipments', path: '/shipments' },
   { label: 'Activity', path: '/activity' },
+  { label: 'Settings', path: '/settings' },
 ] as const

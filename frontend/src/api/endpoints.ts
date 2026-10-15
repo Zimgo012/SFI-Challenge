@@ -29,6 +29,7 @@ export const endpoints = {
   activity: '/api/activity',
   overview: '/api/overview',
   systemStatus: '/api/system/status',
+  simulationClock: '/__simulation/clock',
   orderExpiration: (externalId: string) => `/orders/${id(externalId)}/expiration`,
   health: '/health',
 } as const

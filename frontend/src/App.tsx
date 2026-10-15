@@ -7,6 +7,7 @@ import TerminalsPage from './pages/TerminalsPage'
 import FleetPage from './pages/FleetPage'
 import ShipmentsPage from './pages/ShipmentsPage'
 import ActivityPage from './pages/ActivityPage'
+import SettingsPage from './pages/SettingsPage'
 import NotFoundPage from './pages/NotFoundPage'
 
 export default function App() {
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="fleet" element={<FleetPage />} />
         <Route path="shipments" element={<ShipmentsPage />} />
         <Route path="activity" element={<ActivityPage />} />
+        <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
     </Routes>

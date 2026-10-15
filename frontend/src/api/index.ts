@@ -8,7 +8,7 @@ export { getTerminals, getTerminal, getTerminalStatuses, connectTerminalStatus, 
 export { getShipments, getAllShipments, subscribeShipments } from './shipments'
 export { getActivity, subscribeActivity } from './activity'
 export { getOverview } from './overview'
-export { getSystemStatus } from './system'
+export { getSystemStatus, getSimulationClock, setSimulationSpeed } from './system'
 export { getHealth } from './health'
 export type * from './types'
 export type { LoadParams, LoadStatus, OrderType, LoadStreamParams } from './orders'

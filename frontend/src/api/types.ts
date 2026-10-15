@@ -184,6 +184,13 @@ export interface SystemStatus {
   last_error: string | null
 }
 
+export interface SimulationClock {
+  wall_time_utc: string
+  sim_time_utc: string
+  simulation_speed: number
+  note: string
+}
+
 export interface ProfitSummary {
   confirmed_estimated_profit: DecimalString
   conditional_pending_bid_profit: DecimalString
