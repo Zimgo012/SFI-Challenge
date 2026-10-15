@@ -6,6 +6,8 @@ export const endpoints = {
     list: '/api/loads',
     webSocket: '/api/loads/ws',
     detail: (externalId: string) => `/api/loads/${id(externalId)}`,
+    costPreview: (externalId: string) => `/api/loads/${id(externalId)}/cost-preview`,
+    evaluate: (externalId: string) => `/api/loads/${id(externalId)}/evaluate`,
     accept: (externalId: string) => `/api/loads/${id(externalId)}/accept`,
     decline: (externalId: string) => `/api/loads/${id(externalId)}/decline`,
     bid: (externalId: string) => `/api/loads/${id(externalId)}/bid`,

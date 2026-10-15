@@ -112,7 +112,18 @@ Snapshots, updates, and heartbeats replace the complete result set, including
 removing orders that no longer match. Compact cards show pickup/delivery
 locations, distance, cargo weight, pickup time, delivery time, and offer expiry.
 Accept/decline controls use a dating-card layout. For open-bid orders, Accept
-opens a bid form; only submitting that form sends a bid. For fixed-rate offers,
+opens a profit analyzer; only submitting its form sends a bid. Every open-bid
+card also has an Analyze profit link.
+The analyzer uses a wide panel with margin controls and key profit figures beside
+Economics and Order details tabs. Compact eligibility checks appear below the margin controls. Its submit button stays visible
+at the bottom; smaller screens stack the sections above that footer.
+The percentage input and slider calculate
+the bid from selected-unit total cost, rounded up to cents; a manual bid can
+override this target. Read-only cost previews show loaded/deadhead costs, gross
+profit, actual margin, minimum profitable bid, and dispatch eligibility. Unknown
+costs stay unknown. Changing the bid or receiving a new order snapshot invalidates
+the previous preview; submission requires a matching eligible evaluation. Bid
+amounts accept up to 16 whole digits and two decimal places. For fixed-rate offers,
 Accept submits the acceptance directly. Decline submits the
 documented decline action. Expired orders and disconnected streams disable
 submissions. More information opens a sliding right-side dialog with pricing,

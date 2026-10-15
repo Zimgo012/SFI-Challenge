@@ -341,3 +341,207 @@ export interface UnitProjection {
   uncertain_action_ids: string[]
   rejection_reasons: string[]
 }
+
+// Read-only order economics and dispatch-preview responses.
+export interface EconomicsSource {
+  method: string
+  inputs: Record<string, string | null>
+  formula: string | null
+}
+
+export interface EconomicsSources {
+  payout: EconomicsSource
+  loaded_cost: EconomicsSource
+  cost_per_mile: EconomicsSource
+  projected_deadhead_miles: EconomicsSource
+  projected_deadhead_cost: EconomicsSource
+  total_cost: EconomicsSource
+  gross_profit: EconomicsSource
+  deadhead_travel_hours: EconomicsSource
+  shipment_duration_hours: EconomicsSource
+  turnaround_hours: EconomicsSource
+  occupied_hours: EconomicsSource
+  profit_per_hour: EconomicsSource
+  margin_pct: EconomicsSource
+  minimum_profitable_bid: EconomicsSource
+  opportunity_cost: EconomicsSource
+  positioning_value: EconomicsSource
+  adjusted_profit: EconomicsSource
+}
+
+export interface BidFloorRequirements {
+  minimum_profit_usd: DecimalString
+  minimum_margin_pct: DecimalString
+  dollar_profit_floor: DecimalString | null
+  percentage_margin_floor: DecimalString | null
+  determining_requirement: 'dollar_profit' | 'percentage_margin' | 'both' | null
+  explanation: string
+}
+
+export interface MissingEconomicsInput {
+  field: string
+  code: string
+  message: string
+}
+
+export interface ExpectedEconomics {
+  calculation_version: 'deterministic_v1'
+  currency: 'USD'
+  payout: DecimalString | null
+  loaded_cost: DecimalString | null
+  projected_deadhead_miles: DecimalString | null
+  projected_deadhead_cost: DecimalString | null
+  total_cost: DecimalString | null
+  gross_profit: DecimalString | null
+  margin_pct: DecimalString | null
+  deadhead_travel_hours: DecimalString | null
+  shipment_duration_hours: DecimalString | null
+  turnaround_hours: DecimalString | null
+  occupied_hours: DecimalString | null
+  profit_per_hour: DecimalString | null
+  minimum_profitable_bid: DecimalString | null
+  bid_floor: BidFloorRequirements
+  opportunity_cost: DecimalString | null
+  positioning_value: DecimalString | null
+  adjusted_profit: DecimalString | null
+  profit_adjustments: ProfitAdjustmentDetails
+  cost_per_mile: DecimalString | null
+  sources: EconomicsSources
+  missing_inputs: Array<MissingEconomicsInput>
+}
+
+export interface ProfitAdjustmentPolicy {
+  opportunity_cost_enabled: boolean
+  opportunity_cost_per_hour: DecimalString
+  positioning_value_enabled: boolean
+  positioning_credit_fraction: DecimalString
+  positioning_max_credit: DecimalString
+  historical_min_samples: number
+  historical_lookback_days: number
+  historical_origin_radius_miles: DecimalString
+}
+
+export interface ProfitAdjustmentDetails {
+  calculation_version: string
+  policy: ProfitAdjustmentPolicy
+  opportunity_cost: Record<string, unknown>
+  positioning_value: Record<string, unknown>
+  warnings: Array<string>
+}
+
+export interface OccupiedWindow {
+  occupied_from: string
+  occupied_until: string
+  pickup_buffer_hours: DecimalString
+  deadhead_travel_hours: DecimalString
+  shipment_duration_hours: DecimalString
+  turnaround_hours: DecimalString
+  occupied_hours: DecimalString
+}
+
+export interface DispatchPolicy {
+  profit_adjustments: ProfitAdjustmentPolicy
+  enforce_margin: boolean
+  min_expected_margin_pct: DecimalString
+  min_expected_margin_usd: DecimalString
+  max_deadhead_miles: DecimalString
+  max_weight_lbs: number
+  min_pickup_lead_minutes: DecimalString
+  pickup_buffer_minutes: DecimalString
+  assumed_travel_speed_mph: DecimalString
+  turnaround_minutes: DecimalString
+  max_fleet_snapshot_age_seconds: number
+}
+
+export interface DispatchRejection {
+  code: string
+  check: string
+  message: string
+  suggested_action: string
+  context: Record<string, unknown>
+}
+
+export interface DispatchEvaluation {
+  external_id: string
+  candidate_unit_id: string | null
+  evaluated_at_sim: string
+  policy: DispatchPolicy
+  eligible: boolean
+  checks: Record<string, boolean>
+  skipped_checks: Array<string>
+  rejection_reasons: Array<string>
+  rejection_details: Array<DispatchRejection>
+  capacity_warnings: Array<Record<string, unknown>>
+  capacity_units_for_window: number
+  economics: ExpectedEconomics
+  deadhead_miles: DecimalString | null
+  margin_pct_for_policy: DecimalString | null
+  occupied_window: OccupiedWindow | null
+  earliest_pickup_at: string | null
+  projection: UnitProjection | null
+}
+
+export interface RankingPolicy {
+  empty_miles_weight: DecimalString
+  continuity_weight: DecimalString
+  utilization_weight: DecimalString
+  utilization_horizon_hours: DecimalString
+}
+
+export interface RankedMatch {
+  rank: number
+  external_id: string
+  shipment_id: string
+  unit_id: string
+  board_unit_id: number
+  unit_number: string
+  pickup_at: string
+  delivery_at: string
+  pickup_terminal_code: string
+  projected_latitude: DecimalString
+  projected_longitude: DecimalString
+  position_source: string
+  source_assignment_id: string | null
+  deadhead_miles: DecimalString
+  cost_per_mile: DecimalString | null
+  deadhead_cost: DecimalString | null
+  cost_missing_reason: string | null
+  economics: ExpectedEconomics
+  empty_miles_score: DecimalString
+  continues_previous_route: boolean
+  previous_assignment_id: string | null
+  idle_gap_seconds: DecimalString | null
+  continuity_score: DecimalString
+  booked_hours: DecimalString
+  added_loaded_hours: DecimalString
+  utilization_before: DecimalString
+  utilization_after: DecimalString
+  score: DecimalString
+  booking_ready: boolean
+  dispatch_rejection_reasons: Array<string>
+  dispatch_rejection_details: Array<DispatchRejection>
+}
+
+export interface RejectedUnit {
+  unit_id: string
+  rejection_reasons: Array<string>
+}
+
+export interface OrderRecommendations {
+  market_context: Record<string, unknown> | null
+  external_id: string
+  evaluated_at_sim: string
+  horizon_end: string
+  policy: RankingPolicy
+  entered_bid_rate: DecimalString | null
+  dispatch_evaluation: DispatchEvaluation | null
+  selected: RankedMatch | null
+  ranked_units: Array<RankedMatch>
+  rejected_units: Array<RejectedUnit>
+  rejection_reasons: Array<string>
+}
+
+export interface CostPreviewRequest {
+  bid_rate?: string
+  unit_id?: string
+}

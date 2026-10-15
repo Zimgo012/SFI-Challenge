@@ -1,6 +1,6 @@
 export { apiFetch, withQuery } from './client'
 export { endpoints } from './endpoints'
-export { getLoads, getLoad, acceptLoad, declineLoad, bidOnLoad, connectLoads, subscribeLoads, LoadDecisionError, submitLoadDecision, getOrderExpiration } from './orders'
+export { getLoads, getLoad, getCostPreview, evaluateOrder, acceptLoad, declineLoad, bidOnLoad, connectLoads, subscribeLoads, LoadDecisionError, submitLoadDecision, getOrderExpiration } from './orders'
 export { getBids, getBidLogs, subscribeBidLogs } from './bids'
 export { getFleetUnits, getFleetUnit, getFleetCapacity, getLegacyFleetCapacity, getFleetProjections, getUnitProjection, getAllFleetUnits, getFleetData, subscribeFleet } from './fleet'
 export type { FleetData, LiveFleetState } from './fleet'

@@ -54,11 +54,12 @@ export default function LoadCard({ load, disabled, pending, onAccept, onDecline,
 
         <div className="mt-auto flex items-center justify-between gap-3 border-t border-base-300 pt-3">
           <button type="button" className="link link-primary text-xs no-underline hover:underline" onClick={onMoreInformation} aria-haspopup="dialog">More information</button>
+          {load.order_type === 'open_bid' && <button type="button" className="link link-primary text-xs no-underline hover:underline" onClick={onAccept} aria-haspopup="dialog">Analyze profit</button>}
           <div className="flex gap-3">
             <button type="button" className="btn btn-circle btn-outline btn-error size-10" disabled={disabled} onClick={onDecline} title="Decline" aria-label={`Decline order ${load.external_id}`}>
               {pending ? <span className="loading loading-spinner loading-xs" aria-hidden="true" /> : <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-5"><path strokeLinecap="round" d="m6 6 12 12M18 6 6 18" /></svg>}
             </button>
-            <button type="button" className="btn btn-circle btn-primary size-10" disabled={disabled} onClick={onAccept} title={load.order_type === 'fixed_rate' ? 'Accept fixed-rate offer' : 'Accept and place a bid'} aria-haspopup={load.order_type === 'open_bid' ? 'dialog' : undefined} aria-label={load.order_type === 'fixed_rate' ? `Accept fixed-rate order ${load.external_id}` : `Accept order ${load.external_id} and enter a bid`}>
+            <button type="button" className="btn btn-circle btn-primary size-10" disabled={disabled} onClick={onAccept} title={load.order_type === 'fixed_rate' ? 'Accept fixed-rate offer' : 'Analyze profit and place a bid'} aria-haspopup={load.order_type === 'open_bid' ? 'dialog' : undefined} aria-label={load.order_type === 'fixed_rate' ? `Accept fixed-rate order ${load.external_id}` : `Accept order ${load.external_id} and analyze profit`}>
               <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-5"><path strokeLinecap="round" strokeLinejoin="round" d="m5 12 4 4L19 6" /></svg>
             </button>
           </div>

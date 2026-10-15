@@ -1,7 +1,7 @@
 import { apiFetch, withQuery } from './client'
 import { env } from '../config/env'
 import { endpoints } from './endpoints'
-import type { ActionRequest, ActionResult, BidRequest, LoadStreamEvent, LoadView, PaginationParams, SystemStatus } from './types'
+import type { CostPreviewRequest, ActionRequest, ActionResult, BidRequest, LoadStreamEvent, LoadView, PaginationParams, SystemStatus } from './types'
 import { isValidBidAmount } from '../utils/bid-amount'
 
 export type OrderType = 'fixed_rate' | 'open_bid'
@@ -39,6 +39,30 @@ export async function getLoad(
   options: RequestInit = {},
 ) {
   return apiFetch(endpoints.loads.detail(externalId), { ...options, method: 'GET' })
+}
+
+export async function getCostPreview(
+  externalId: string,
+  body: CostPreviewRequest = {},
+  options: RequestInit = {},
+) {
+  return apiFetch(endpoints.loads.costPreview(externalId), {
+    ...options,
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function evaluateOrder(
+  externalId: string,
+  body: CostPreviewRequest = {},
+  options: RequestInit = {},
+) {
+  return apiFetch(endpoints.loads.evaluate(externalId), {
+    ...options,
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
 }
 
 export async function acceptLoad(
@@ -224,4 +248,4 @@ export async function getOrderExpiration(
   return apiFetch(endpoints.orderExpiration(externalId), { ...options, method: 'GET' })
 }
 
-export type { ActionRequest, ActionResult, ActionView, AssignmentView, BidRequest, EvaluationView, LoadDetail, LoadStreamEvent, LoadStreamMessage, LoadView, OrderExpiration } from './types'
+export type { CostPreviewRequest, DispatchEvaluation, ExpectedEconomics, OrderRecommendations, RankedMatch, ActionRequest, ActionResult, ActionView, AssignmentView, BidRequest, EvaluationView, LoadDetail, LoadStreamEvent, LoadStreamMessage, LoadView, OrderExpiration } from './types'
