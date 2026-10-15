@@ -56,6 +56,9 @@ export function apiFeedback(payload: unknown, status: number) {
   if (!details.length) {
     for (const reason of Array.isArray(evaluation.rejection_reasons) ? evaluation.rejection_reasons : []) add(details, reason)
   }
+  const rejectionMessage = details[0]
+  // Keep the board's direct rejection ahead of ancillary capacity warnings.
+  const directMessage = typeof body.detail === 'string' && body.detail.trim() ? readableMessage(body.detail) : undefined
   for (const value of Array.isArray(evaluation.capacity_warnings) ? evaluation.capacity_warnings : []) {
     const warning = object(value)
     add(details, warning.message)
@@ -75,9 +78,8 @@ export function apiFeedback(payload: unknown, status: number) {
     : status === 409 ? 'The order could not be submitted because its availability or eligibility changed.'
     : status >= 500 ? 'The service could not confirm the request. Check the order status before trying again.'
     : 'The request could not be completed. Refresh the order and try again.'
-  const message = details.length ? 'Review the reasons below before choosing your next action.'
-    : typeof body.detail === 'string' && body.detail.trim() ? readableMessage(body.detail) : fallback
-  return { message, details, suggestions }
+  const message = rejectionMessage ?? directMessage ?? details[0] ?? fallback
+  return { message, details: details.filter((detail) => detail !== message), suggestions }
 }
 
 export type LoadFeedback = {

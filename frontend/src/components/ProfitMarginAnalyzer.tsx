@@ -25,7 +25,7 @@ async function preview(loadId: string, bid: string | null, signal: AbortSignal):
   const body = await response.json().catch(() => null)
   if (!response.ok) {
     const feedback = apiFeedback(body, response.status)
-    throw new Error([...(feedback.details.length ? feedback.details : [feedback.message]), ...feedback.suggestions].join(' '))
+    throw new Error([feedback.message, ...feedback.details, ...feedback.suggestions].join(' '))
   }
   if (!body) throw new Error('The profit preview could not be read. Refresh the analysis to try again.')
   if (body.external_id !== loadId || !Array.isArray(body.ranked_units)) throw new Error('The profit preview could not be verified.')
