@@ -30,8 +30,16 @@ labels and links. `src/App.tsx` declares the routes using
 [React Router](https://reactrouter.com/start/declarative/routing).
 Unknown URLs show a page-not-found screen. Page content is a scaffold awaiting
 backend data; dashboard values are unavailable rather than simulated counts.
+Terminal rows expand with View fleet to show their units and schedules from
+`/api/fleet/schedules?terminal=CODE`. Each unit expands inline to show confirmed
+assignments, occupied windows including turnaround, and provisional reservations.
+Lists contain 20 units per page and can include past assignments. Expanded views
+refresh on order/terminal snapshots and heartbeats, retain previous data on read
+errors, and cancel requests when collapsed. The order stream is shared across
+expanded terminals and closes when all rows collapse.
+
 The Terminals page subscribes to `/api/terminals/status/ws` and displays hub
-status, local/board capacity, discrepancies, and sync times. Snapshots, updates,
+status and local/board capacity. Snapshots, updates,
 and heartbeats replace the full list automatically. The page shows connection
 status, preserves previous results during outages, and reconnects with a
 1–30 second backoff. Missing heartbeats trigger reconnection after 45 seconds.

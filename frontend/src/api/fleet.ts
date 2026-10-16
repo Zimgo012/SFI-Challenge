@@ -15,6 +15,22 @@ export interface CapacityParams {
   discrepancies_only?: boolean
 }
 
+export interface FleetScheduleParams extends PaginationParams {
+  unit_id?: string
+  terminal?: string
+  starts_at?: string
+  ends_at?: string
+  include_history?: boolean
+  include_missing?: boolean
+}
+
+export async function getFleetSchedules(
+  params: FleetScheduleParams = {},
+  options: RequestInit = {},
+) {
+  return apiFetch(withQuery(endpoints.fleet.schedules, params), { ...options, method: 'GET' })
+}
+
 export async function getFleetUnits(
   params: FleetParams = {},
   options: RequestInit = {},
@@ -162,4 +178,4 @@ export function subscribeFleet(onChange: (state: LiveFleetState) => void): () =>
   }
 }
 
-export type { CapacityCounts, FleetCapacityResponse, ProjectedDelivery, UnitDetail, UnitProjection, UnitView } from './types'
+export type { CapacityCounts, FleetCapacityResponse, ProjectedDelivery, ScheduledAssignment, ScheduledReservation, UnitSchedule, UnitDetail, UnitProjection, UnitView } from './types'

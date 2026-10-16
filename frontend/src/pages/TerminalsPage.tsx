@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { subscribeTerminalStatuses } from '../api/terminals'
 import type { TerminalStatus, TerminalStreamState } from '../api/terminals'
 import EmptyPanel from '../components/EmptyPanel'
 import PageSection from '../components/PageSection'
+import TerminalFleetSchedules from '../components/TerminalFleetSchedules'
+import { subscribeLoads } from '../api/orders'
 
 const statusLabels: Record<TerminalStatus['status'], string> = {
   available: 'Available',
@@ -27,9 +29,38 @@ export default function TerminalsPage() {
     error: null,
   })
 
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [revision, setRevision] = useState(0)
+  const [scheduleError, setScheduleError] = useState<string | null>(null)
+  const hasExpanded = expanded.size > 0
+
+  useEffect(() => subscribeTerminalStatuses((state) => {
+    setStream(state)
+    if (state.connection === 'live' && state.terminals) {
+      setRevision((value) => value + 1)
+      const present = new Set(state.terminals.map((terminal) => terminal.terminal_id))
+      setExpanded((current) => new Set([...current].filter((id) => present.has(id))))
+    }
+  }), [])
+
   useEffect(() => {
-    return subscribeTerminalStatuses(setStream)
-  }, [])
+    if (!hasExpanded) return
+    return subscribeLoads({ order_type: 'all', status: 'all' }, (state) => {
+      setScheduleError(state.error)
+      if (state.connection === 'live') setRevision((value) => value + 1)
+    })
+  }, [hasExpanded])
+
+  function toggleTerminal(id: string) {
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const terminalCodes = Object.fromEntries((terminals ?? []).map((terminal) => [terminal.terminal_id, terminal.code]))
 
   const availableUnits = terminals?.length && terminals.every((terminal) => terminal.available_units !== null)
     ? terminals.reduce((total, terminal) => total + (terminal.available_units ?? 0), 0)
@@ -53,6 +84,7 @@ export default function TerminalsPage() {
         </div>
       )}
 
+      {hasExpanded && scheduleError && <p role="status" className="text-sm text-warning">Schedule updates are reconnecting. Expanded schedules refresh when live updates resume.</p>}
       <div aria-busy={terminals === null}>
         {terminals === null && (
           <div role="status" className="flex items-center gap-3 rounded-xl border border-base-300 bg-base-100 p-8">
@@ -83,7 +115,7 @@ export default function TerminalsPage() {
             <div className="overflow-x-auto rounded-xl border border-base-300 bg-base-100">
               <table className="table">
                 <caption className="px-4 py-4 text-left text-sm text-base-content/65">
-                  Local fleet counts compared with board availability. A dash means the count is not yet known.
+                  Local fleet counts compared with board availability. Expand a terminal to inspect each unit’s schedule.
                 </caption>
                 <thead>
                   <tr>
@@ -93,11 +125,13 @@ export default function TerminalsPage() {
                     <th scope="col" className="text-right">Available</th>
                     <th scope="col" className="text-right">Assigned</th>
                     <th scope="col" className="text-right">Board available</th>
+                    <th scope="col">Fleet schedules</th>
                   </tr>
                 </thead>
                 <tbody>
                   {terminals.map((terminal) => (
-                    <tr key={terminal.terminal_id} className="hover:bg-base-200/60">
+                    <Fragment key={terminal.terminal_id}>
+                    <tr className={expanded.has(terminal.terminal_id) ? 'bg-primary/5' : 'hover:bg-base-200/60'}>
                       <th scope="row" className="min-w-44 font-normal">
                         <span className="font-semibold text-primary">{terminal.code}</span>
                         <p className="font-medium">{terminal.name}</p>
@@ -108,7 +142,10 @@ export default function TerminalsPage() {
                       <td className="text-right font-semibold tabular-nums">{terminal.available_units ?? '—'}</td>
                       <td className="text-right tabular-nums">{terminal.assigned_units ?? '—'}</td>
                       <td className="text-right tabular-nums">{terminal.board_available_units ?? '—'}</td>
+                      <td><button type="button" className="btn btn-ghost btn-sm whitespace-nowrap text-primary" aria-expanded={expanded.has(terminal.terminal_id)} aria-controls={`terminal-fleet-${terminal.terminal_id}`} onClick={() => toggleTerminal(terminal.terminal_id)}><span aria-hidden="true">{expanded.has(terminal.terminal_id) ? '▾' : '▸'}</span>{expanded.has(terminal.terminal_id) ? 'Hide fleet' : 'View fleet'}</button></td>
                     </tr>
+                    {expanded.has(terminal.terminal_id) && <tr><td colSpan={7} className="bg-base-200/50 p-0"><div id={`terminal-fleet-${terminal.terminal_id}`}><TerminalFleetSchedules code={terminal.code} revision={revision} terminalCodes={terminalCodes} /></div></td></tr>}
+                  </Fragment>
                   ))}
                 </tbody>
               </table>

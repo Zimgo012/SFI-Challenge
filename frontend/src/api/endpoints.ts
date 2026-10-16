@@ -21,6 +21,7 @@ export const endpoints = {
     statusWebSocket: '/api/terminals/status/ws',
   },
   fleet: {
+    schedules: '/api/fleet/schedules',
     units: '/api/fleet/units',
     projections: '/api/fleet/projections',
     projection: (unitId: string) => `/api/fleet/units/${id(unitId)}/projection`,

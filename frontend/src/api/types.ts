@@ -164,6 +164,35 @@ export interface UnitDetail extends UnitView {
   actual_assignment: AssignmentView | null
 }
 
+export interface ScheduledAssignment extends AssignmentView {
+  external_id: string
+  occupied_from: string | null
+  occupied_until: string | null
+  lock_retired_at: string | null
+}
+
+export interface ScheduledReservation {
+  action_id: string
+  external_id: string
+  action_type: string
+  request_status: string
+  busy_from: string
+  busy_until: string
+}
+
+export interface UnitSchedule {
+  unit_id: string
+  board_unit_id: number
+  unit_number: string
+  terminal_code: string
+  status: string
+  board_missing: boolean
+  available_at: string | null
+  as_of_sim_time: string | null
+  assignments: ScheduledAssignment[]
+  reservations: ScheduledReservation[]
+}
+
 export interface TerminalDetail extends TerminalView {
   roster: Array<UnitView>
 }
