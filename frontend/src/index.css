@@ -1,4 +1,41 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+
+/* shadcn primitives follow the existing daisyUI light/dark theme. */
+:root, [data-theme] {
+  --background: var(--color-base-100);
+  --foreground: var(--color-base-content);
+  --primary: var(--color-primary);
+  --primary-foreground: var(--color-primary-content);
+  --secondary-foreground: var(--color-secondary-content);
+  --accent-foreground: var(--color-accent-content);
+  --popover: var(--color-base-100);
+  --popover-foreground: var(--color-base-content);
+  --muted: var(--color-base-200);
+  --muted-foreground: color-mix(in srgb, var(--color-base-content) 65%, transparent);
+  --border-color: var(--color-base-300);
+  --input: var(--color-base-300);
+  --ring: var(--color-primary);
+  --destructive: var(--color-error);
+  --destructive-foreground: var(--color-error-content);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border-color);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+}
 
 @keyframes load-panel-enter {
   from { transform: translateX(100%); }
@@ -121,4 +158,75 @@
   background-color: #042f2e;
   color: #5eead4;
   border-color: #0f766e;
+}
+
+.globe-land {
+  fill: var(--color-base-200);
+  stroke: color-mix(in srgb, var(--color-base-content) 20%, transparent);
+  stroke-width: 0.7;
+}
+.globe-country-borders, .globe-region-borders {
+  fill: none;
+  stroke: var(--color-base-content);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.globe-country-borders { stroke-width: 0.7; opacity: 0.24; }
+.globe-region-borders { stroke-width: 0.5; opacity: 0.16; }
+
+.terminal-globe-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.terminal-globe-position {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+.terminal-globe-marker {
+  display: inline-flex;
+  width: 88px;
+  height: 46px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.terminal-globe-code {
+  max-width: 88px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-base-100) 90%, transparent);
+  padding: 2px 5px;
+  color: var(--color-base-content);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.terminal-globe-location {
+  fill: currentColor;
+  stroke: var(--color-base-100);
+  stroke-width: 2;
+}
+.terminal-globe-connector {
+  stroke: var(--color-base-content);
+  stroke-width: 0.8;
+  opacity: 0.35;
+}
+.terminal-globe-marker:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+.terminal-globe-marker:hover .terminal-globe-code {
+  background: var(--color-base-200);
+}
+.terminal-globe-marker[aria-pressed='true'] .terminal-globe-code {
+  background: var(--color-primary);
+  color: var(--color-primary-content);
 }

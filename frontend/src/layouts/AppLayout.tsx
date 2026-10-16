@@ -72,7 +72,7 @@ export default function AppLayout() {
             <ThemeToggle />
           </div>
         </header>
-        <main id="main-content" ref={mainRef} tabIndex={-1} className="mx-auto max-w-7xl p-6 outline-none lg:p-10">
+        <main id="main-content" ref={mainRef} tabIndex={-1} className={`mx-auto p-6 outline-none lg:p-10 ${pathname === '/dashboard' ? 'w-full' : 'max-w-7xl'}`}>
           <Outlet />
         </main>
       </div>

@@ -97,7 +97,24 @@ lists show up to five records; summary counts use full live data rather than
 preview lengths. Active shipments exclude completed bookings. Unknown capacity
 stays unknown, and confirmed estimates remain separate from conditional pending
 bid profit. Active shipment and pending bid previews show at most five records,
-ordered by order creation time, newest first. Stream changes
+ordered by order creation time, newest first. Terminal capacity uses a full-width
+SVG globe with public-domain Natural Earth land outlines, subtle dotted land
+texture, and thin country/regional borders. Flat surfaces, compact controls,
+and plain labels with small status dots keep the map minimal in both themes.
+Status circles stay at their exact geographic coordinates; only nearby labels
+are separated in screen space to keep every terminal clickable, with thin
+connectors back to their true locations. Labels avoid covering status circles.
+Very dense views put additional terminals in a selectable row below the map.
+Terminal codes and
+markers use API latitude/longitude and the same equirectangular projection
+as the SVG. Hover or focus a code to preview live capacity; select it to keep
+details and a terminal-schedules link open below the map. The dashboard fills the
+available width, with a larger map (460px on mobile, 560px on tablet, 640px on
+desktop) automatically fitted to the terminal region. The selected
+terminal persists during capacity updates. Labels stay readable as the map resizes
+with the sidebar or viewport. Missing/invalid coordinates are listed below the
+map. Geography is bundled locally, requires no tile requests, and loads in a
+separate bundle. Stream changes
 refresh overview metadata, with a 30-second REST fallback and a manual Refresh
 button. Connection failures retain previous data; leaving the page closes both
 streams, aborts reads, and cancels refresh timers.
@@ -226,6 +243,33 @@ bright-blue accents. Theme tokens live in `src/index.css` and use the
 [daisyUI custom theme format](https://daisyui.com/docs/themes/).
 Use Tailwind utility classes
 and daisyUI component classes directly in JSX.
+
+### Reusable UI components
+
+React, TypeScript, Tailwind CSS v4, and shadcn-compatible configuration are already
+installed. `components.json` points reusable primitives to `src/components/ui/`;
+`@/` resolves to `src/` in Vite and TypeScript. Keep primitives in this folder so
+copied `@/components/ui/...` imports and the shadcn CLI resolve consistently.
+App-specific components remain in `src/components/`. Shared `cn()` class merging
+lives in `src/lib/utils.ts`; global styles and theme tokens stay in `src/index.css`.
+The shadcn color utilities reference the existing daisyUI theme, so the globe,
+buttons, and tooltips follow the light/dark toggle.
+
+To add another primitive to this configured project:
+
+```sh
+npx shadcn@latest add card
+```
+
+For a separate fresh Vite project, the [shadcn CLI](https://ui.shadcn.com/docs/installation/vite)
+can scaffold the setup with `npx shadcn@latest init -t vite`.
+
+The supplied globe primitives are in `src/components/ui/globe.tsx`, with its SVG
+geography, pulse, and tooltip adapter under `globe-utils/`. The adapter supports
+the sample's `render` prop using Radix's `asChild` API. Tooltip content is portaled
+outside the SVG to prevent clipping. `src/components/ui/demo.tsx` exports the
+standalone sample; the dashboard uses live API terminals through
+`src/components/TerminalCapacityMap.tsx` instead of the demo's sample figures.
 
 Official setup references: [Tailwind CSS](https://tailwindcss.com/docs/installation/using-vite/)
 and [daisyUI](https://daisyui.com/docs/install/vite/).

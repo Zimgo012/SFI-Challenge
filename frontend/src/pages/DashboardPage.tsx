@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { subscribeOverview } from '../api/overview'
@@ -11,6 +11,8 @@ const initialState: LiveOverviewState = {
   overview: null, loads: null, terminals: null, system: null,
   connection: 'connecting', updating: false, error: null, updatedAt: null,
 }
+
+const TerminalCapacityMap = lazy(() => import('../components/TerminalCapacityMap'))
 
 function Panel({ title, to, caption, children }: { title: string; to: string; caption: string; children: ReactNode }) {
   return <section className="min-w-0 overflow-hidden rounded-xl border border-base-300 bg-base-100">
@@ -44,10 +46,7 @@ export default function DashboardPage() {
   const boardDelayed = !!system && ['disconnected', 'reconnecting', 'connecting'].includes(system.connection_status)
   const live = connection === 'live' && !error && !boardDelayed
   const profit = overview?.profit
-  const capacity = [...(terminals ?? [])].sort((left, right) =>
-    Number(right.status === 'attention' || right.consistent === false) - Number(left.status === 'attention' || left.consistent === false)
-    || left.code.localeCompare(right.code),
-  )
+
 
   return (
     <PageSection title="Dashboard" description="Your opportunities, capacity, and shipments at a glance.">
@@ -96,17 +95,13 @@ export default function DashboardPage() {
         </li>)}</ul> : <NoData loading={loading}>No open opportunities. New orders will appear automatically.</NoData>}
       </Panel>
 
-      <div className="grid items-start gap-5 xl:grid-cols-3">
-        <Panel title="Terminal capacity" to="/terminals" caption={summary.attentionCount ? `${summary.attentionCount} hubs need attention · Current roster counts` : 'Current available trucks by hub'}>
-          {capacity.length ? <ul className="max-h-[30rem] divide-y divide-base-200 overflow-y-auto">{capacity.map((terminal) => {
-            const needsAttention = terminal.status === 'attention' || terminal.consistent === false
-            const known = terminal.total_units !== null && terminal.available_units !== null && terminal.total_units > 0 && terminal.available_units <= terminal.total_units
-            return <li key={terminal.terminal_id} className="space-y-2 p-5">
-              <div className="flex items-center justify-between gap-3"><div><p className="text-sm font-semibold">{terminal.code} <span className="font-normal text-base-content/60">· {terminal.city}</span></p><p className="mt-1 text-xs text-base-content/55">{count(terminal.assigned_units)} assigned / {count(terminal.total_units)} total</p></div><div className="text-right"><p className="text-lg font-bold tabular-nums text-primary">{count(terminal.available_units)} <span className="text-xs font-normal text-base-content/55">available</span></p>{needsAttention && <Link to="/terminals" className="text-xs text-warning underline">Review capacity</Link>}</div></div>
-              {known && <progress className={`progress h-1.5 w-full ${needsAttention ? 'progress-warning' : 'progress-primary'}`} value={terminal.available_units ?? 0} max={terminal.total_units ?? 1} aria-label={`${terminal.code} available trucks`} />}
-            </li>
-          })}</ul> : <NoData loading={terminals === null}>No terminal capacity has been synced yet.</NoData>}
-        </Panel>
+      <Panel title="Terminal capacity" to="/terminals" caption={summary.attentionCount ? `${summary.attentionCount} hubs need attention · Select a terminal code on the map` : 'Terminal locations and live truck availability'}>
+        <Suspense fallback={<div role="status" className="flex h-[460px] items-center justify-center gap-2 text-sm text-base-content/60 sm:h-[560px] lg:h-[640px]"><span className="loading loading-spinner loading-sm" />Loading terminal map…</div>}>
+          <TerminalCapacityMap terminals={terminals} />
+        </Suspense>
+      </Panel>
+
+      <div className="grid items-start gap-5 lg:grid-cols-2">
         <Panel title="Active shipments" to="/shipments" caption="Latest five active shipments · Newest orders first">
           {summary.shipments.length ? <ul className="divide-y divide-base-200">{summary.shipments.map((shipment) => {
             const overdue = shipment.status === 'in_transit' && !!system?.sim_time_utc && !!shipment.delivery_at && Date.parse(shipment.delivery_at) < Date.parse(system.sim_time_utc)
