@@ -9,6 +9,8 @@ from schema.base import Base
 
 
 class Shipment(Base):
+    shipment_history_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    bid_history_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     board_retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     __tablename__ = 'shipments'
     __table_args__ = (Index('ix_shipments_status_expires_at', 'status', 'expires_at'),)

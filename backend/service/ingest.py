@@ -60,6 +60,10 @@ def upsert_orders(
             exclude={'id', 'created_at', 'assigned_driver_id'}, exclude_unset=True,
         )
         values.update(board_order_id=order.id, last_synced_at=synced_at, board_missing_at=None)
+        if previous_status != order.status and order.status in ('open', 'bid_submitted', 'accepted', 'in_transit'):
+            # A genuinely active lifecycle must be visible even if prior closed
+            # history was cleared. Unchanged terminal snapshots preserve cleanup.
+            values.update(shipment_history_deleted_at=None, bid_history_deleted_at=None)
         if 'created_at' in order.model_fields_set:
             values['board_created_at'] = order.created_at
         if 'assigned_driver_id' in order.model_fields_set:

@@ -105,7 +105,10 @@ def list_loads(session, limit=50, offset=0, order_type=None, status=None, origin
     if origin_terminal:
         statement = statement.where(func.upper(Shipment.origin_terminal_code) == origin_terminal.upper())
     if shipments_only:
-        statement = statement.where(Shipment.status.in_(CONFIRMED_STATUSES), Shipment.board_missing_at.is_(None))
+        statement = statement.where(
+            Shipment.status.in_(CONFIRMED_STATUSES), Shipment.board_missing_at.is_(None),
+            Shipment.shipment_history_deleted_at.is_(None),
+        )
     sim_time = clock_time(session)
     return page(session, statement, lambda row: load_view(row, sim_time, session), limit, offset)
 
@@ -207,21 +210,39 @@ def terminal_detail(session, code):
     return TerminalDetail(**result.model_dump(), roster=[unit_view(session, unit) for unit in units])
 
 
-def list_bids(session, limit=50, offset=0):
+def bid_history_statement():
     bid_exists = select(DispatchAction.action_id).where(
         DispatchAction.shipment_id == Shipment.shipment_id, DispatchAction.action_type == 'bid',
     ).exists()
-    statement = select(Shipment).where(
+    return select(Shipment).where(
         Shipment.order_type == 'open_bid',
+        Shipment.bid_history_deleted_at.is_(None),
         or_(Shipment.winning_bid_rate.is_not(None), Shipment.status.in_(('bid_submitted', 'bid_lost')), bid_exists),
-    ).order_by(Shipment.last_synced_at.desc(), Shipment.external_id)
+    )
+
+
+def order_history_statement():
+    """Match the Bid Logs page: both offer types and all non-open outcomes."""
+    return select(Shipment).where(
+        Shipment.order_type.in_(('fixed_rate', 'open_bid')),
+        Shipment.status != 'open', Shipment.bid_history_deleted_at.is_(None),
+    )
+
+
+def list_bids(session, limit=50, offset=0, *, include_order_history=False):
+    statement = order_history_statement() if include_order_history else bid_history_statement()
+    statement = statement.order_by(Shipment.last_synced_at.desc(), Shipment.external_id)
     sim_time = clock_time(session)
     def render(row):
         action = session.scalar(select(DispatchAction).where(
             DispatchAction.shipment_id == row.shipment_id, DispatchAction.action_type == 'bid',
-        ).order_by(DispatchAction.requested_at.desc()))
+        ).order_by(DispatchAction.requested_at.desc(), DispatchAction.action_id.desc()))
         outcome = 'unknown'
-        if row.board_missing_at is None:
+        if row.order_type == 'fixed_rate':
+            outcome = 'not_applicable'
+        elif action is None and row.winning_bid_rate is None and row.status not in ('bid_submitted', 'bid_lost'):
+            outcome = 'not_recorded'
+        elif row.board_missing_at is None:
             if row.status == 'bid_submitted':
                 outcome = 'pending'
             elif row.status == 'bid_lost':

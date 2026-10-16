@@ -83,6 +83,8 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
                                  shipment_id=shipment.shipment_id,
                                  details={'evaluation_id': str(evaluation.evaluation_id)})
             if denial is None:
+                if kind == 'bid':
+                    shipment.bid_history_deleted_at = None
                 action = DispatchAction(
                     shipment_id=shipment.shipment_id, action_type=kind,
                     evaluation_id=evaluation.evaluation_id if evaluation else None,

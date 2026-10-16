@@ -83,6 +83,8 @@ class EvaluationView(View):
     evaluated_at_wall: datetime
 
 class LoadView(View):
+    shipment_history_deleted_at: datetime | None = None
+    bid_history_deleted_at: datetime | None = None
     board_retired_at: datetime | None = None
     shipment_id: UUID
     external_id: str
