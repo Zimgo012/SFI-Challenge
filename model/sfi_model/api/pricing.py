@@ -54,6 +54,14 @@ def input_error(error: dict) -> dict:
         code, message = "NONFINITE_NUMBER", "Number must be finite."
     elif kind in {"greater_than", "greater_than_equal", "less_than_equal", "less_than"}:
         code, message = "OUT_OF_RANGE", "Value is outside the documented field range."
+    elif field.endswith("_at") and kind in {
+        "datetime_type",
+        "datetime_parsing",
+        "datetime_from_date_parsing",
+        "timezone_aware",
+        "value_error",
+    }:
+        code, message = "INVALID_TIMESTAMP", "Use an ISO 8601 timestamp with a timezone offset."
     else:
         code, message = "INVALID_TYPE", "Use the documented JSON type; strings are not numbers."
     return {"field": field, "code": code, "message": message}
@@ -69,7 +77,12 @@ class PricingRoute(APIRoute):
             record = PricingLog(
                 endpoint=(
                     self.path
-                    if self.path in {"/api/v1/predict-bid", "/api/v1/manual-mode/evaluate"}
+                    if self.path
+                    in {
+                        "/api/v1/predict-bid",
+                        "/api/v1/manual-mode/evaluate",
+                        "/api/v1/autopilot/evaluate",
+                    }
                     else "/api/v1/predict-bid"
                 )
             )
@@ -371,5 +384,27 @@ def create_pricing_router(
         response_model=ManualModeResponse,
         summary="Compare an authoritative manual bid with advisory pricing",
         responses={422: {"model": PricingErrorResponse}},
+    )
+    from sfi_model.api.autopilot import AutopilotResponse, create_autopilot_endpoint
+
+    def timeout_fallback(shipment):
+        if fallback is None or invalid_policy or settings.mode != "baseline":
+            return None
+        try:
+            candidate = fallback.recommend(
+                shipment.model_dump(exclude={"units"}), "MODEL_TIMEOUT", settings
+            )
+            return BaselineFallbackResponse.model_validate(candidate) if candidate else None
+        except Exception as error:
+            diagnostic("FALLBACK_FAILED", error)
+            return None
+
+    router.add_api_route(
+        "/autopilot/evaluate",
+        create_autopilot_endpoint(predict_bid, timeout_fallback),
+        methods=["POST"],
+        response_model=AutopilotResponse,
+        summary="Evaluate one model candidate against backend snapshots in shadow mode",
+        responses={422: {"model": PricingErrorResponse}, 503: {"model": PricingErrorResponse}},
     )
     return router
