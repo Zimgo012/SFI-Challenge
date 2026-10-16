@@ -25,6 +25,8 @@ def retire_reset_state(session, clock, orders, missing_ids, wall_now):
     clock_reset = previous is not None and (utc(previous.sim_time_utc) - utc(clock.sim_time_utc)).total_seconds() > 1
     if not counter_reset and not clock_reset:
         return False
+    from service.autopilot_guards import stop_running_on_reset
+    stop_running_on_reset(session)
     shipment_ids = [row.shipment_id for row in known]
     for row in known:
         row.board_retired_at = wall_now

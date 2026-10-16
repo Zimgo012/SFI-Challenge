@@ -46,7 +46,9 @@ def make_board_client(url: str) -> httpx.AsyncClient:
     return httpx.AsyncClient(base_url=url, timeout=20.0)
 
 
-def begin_action(engine: Engine, external_id: str, kind: str, request: ActionRequest):
+def begin_action(engine: Engine, external_id: str, kind: str, request: ActionRequest, *, autopilot_attempt_id=None):
+    if autopilot_attempt_id is not None and kind not in ('accept', 'bid'):
+        raise ProductError(409, 'Autopilot supports fixed-rate accepts and open bids only')
     denial = None
     action_id = None
     try:
@@ -74,7 +76,10 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
             if kind in ('accept', 'bid'):
                 checked = evaluate_dispatch(session, shipment, getattr(request, 'bid_rate', None))
                 evaluation = save_evaluation(session, shipment, checked)
-                if not checked.eligible:
+                if autopilot_attempt_id is not None:
+                    from service.autopilot_guards import authorize_attempt
+                    denial = authorize_attempt(session, autopilot_attempt_id, shipment, checked, request)
+                if denial is None and not checked.eligible:
                     denial = ProductError(
                         409, f'Dispatch rejected: {checked.primary_rejection.message} ({checked.primary_rejection.code})',
                         evaluation=checked.model_dump(mode='json'),
@@ -93,6 +98,9 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
                 )
                 session.add(action)
                 session.flush()
+                if autopilot_attempt_id is not None:
+                    from service.autopilot_guards import attach_action
+                    attach_action(session, autopilot_attempt_id, action.action_id)
                 if evaluation is not None:
                     session.add(AssignmentReservation(
                         action_id=action.action_id, unit_id=evaluation.candidate_unit_id,
@@ -146,9 +154,12 @@ def result(engine, external_id, action_id, sync_pending):
         )
 
 
-async def execute_action(engine: Engine, external_id: str, kind: str, request: ActionRequest) -> ActionResult:
+async def execute_action(engine: Engine, external_id: str, kind: str, request: ActionRequest, *, autopilot_attempt_id=None) -> ActionResult:
     url = board_url()
-    action_id = await asyncio.to_thread(begin_action, engine, external_id, kind, request)
+    action_id = await asyncio.to_thread(begin_action, engine, external_id, kind, request, autopilot_attempt_id=autopilot_attempt_id)
+    if autopilot_attempt_id is not None:
+        from service.autopilot_guards import before_send
+        await asyncio.to_thread(before_send, engine, autopilot_attempt_id, action_id)
     try:
         async with make_board_client(url) as client:
             response = await client.post(

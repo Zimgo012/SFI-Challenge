@@ -14,9 +14,15 @@ from service.expiration import monitor_expirations
 from service.system_state import connection_state
 from service.periodic_sync import periodic_sync, sync_settings
 from service.history_import import sync_history_if_changed
+from service.autopilot import autopilot_worker, recover_runs
+from service.database import get_engine
 
 logger = logging.getLogger(__name__)
 ENV_FILE = Path(__file__).resolve().parent / '.env'
+
+
+def recover_autopilot_runs(reason='backend_restarted'):
+    recover_runs(get_engine(), reason)
 
 
 @asynccontextmanager
@@ -26,6 +32,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     external_api_url = os.getenv('EXTERNAL_API_URL', '').strip()
 
     settings = sync_settings()
+    # Restart/reload never silently resumes an automatically booking session.
+    await asyncio.to_thread(recover_autopilot_runs)
     # A configured, invalid CSV fails startup rather than silently serving partial history.
     await asyncio.to_thread(sync_history_if_changed)
     orders_task = None
@@ -47,12 +55,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     sync_task = asyncio.create_task(periodic_sync(external_api_url or None, settings.interval_seconds), name='board-sync')
     app.state.sync_task = sync_task
+    autopilot_task = asyncio.create_task(autopilot_worker(), name='autopilot')
+    app.state.autopilot_task = autopilot_task
     try:
         yield
     finally:
-        tasks = [task for task in (orders_task, expiration_task, sync_task) if task is not None]
+        tasks = [task for task in (orders_task, expiration_task, sync_task, autopilot_task) if task is not None]
         for task in tasks:
             task.cancel()
         for task in tasks:
             with suppress(asyncio.CancelledError):
                 await task
+        await asyncio.to_thread(recover_autopilot_runs, 'backend_shutdown')
