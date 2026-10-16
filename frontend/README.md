@@ -81,6 +81,17 @@ leaving the route abort requests and close streams. The backend has no
 dedicated Activity WebSocket, so event-only changes appear by the next upstream
 heartbeat even when there is no order or terminal change.
 
+Dashboard combines `/api/overview` totals and profit estimates with full order
+and terminal WebSocket snapshots. It shows open opportunities, available trucks,
+pending bids, active shipments, capacity by hub, and recent activity. Preview
+lists show up to five records; summary counts use full live data rather than
+preview lengths. Active shipments exclude completed bookings. Unknown capacity
+stays unknown, and confirmed estimates remain separate from conditional pending
+bid profit. Recent activity opens the existing details dialog. Stream changes
+refresh overview metadata, with a 30-second REST fallback and a manual Refresh
+button. Connection failures retain previous data; leaving the page closes both
+streams, aborts reads, and cancels refresh timers.
+
 Settings is a temporary local-development page with a current speed/clock readout,
 speed presets, and a custom multiplier from 1 to 100,000. Changes are sent only
 when Apply speed is selected. The board's `POST /simulation/clock` also resets
