@@ -20,12 +20,6 @@ const statusColors: Record<TerminalStatus['status'], string> = {
   unknown: 'badge-info',
 }
 
-function formatTimestamp(value: string | null) {
-  if (!value) return 'Not synced'
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleString()
-}
-
 export default function TerminalsPage() {
   const [{ terminals, connection, error }, setStream] = useState<TerminalStreamState>({
     terminals: null,
@@ -99,8 +93,6 @@ export default function TerminalsPage() {
                     <th scope="col" className="text-right">Available</th>
                     <th scope="col" className="text-right">Assigned</th>
                     <th scope="col" className="text-right">Board available</th>
-                    <th scope="col">Capacity check</th>
-                    <th scope="col">Freshness</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -116,18 +108,6 @@ export default function TerminalsPage() {
                       <td className="text-right font-semibold tabular-nums">{terminal.available_units ?? '—'}</td>
                       <td className="text-right tabular-nums">{terminal.assigned_units ?? '—'}</td>
                       <td className="text-right tabular-nums">{terminal.board_available_units ?? '—'}</td>
-                      <td>
-                        <span className="whitespace-nowrap">
-                          {terminal.consistent === null ? 'Not checked' : terminal.consistent ? 'Consistent' : 'Mismatch'}
-                        </span>
-                        {terminal.discrepancies.length > 0 && (
-                          <p className="text-xs text-warning">{terminal.discrepancies.length} {terminal.discrepancies.length === 1 ? 'discrepancy' : 'discrepancies'}</p>
-                        )}
-                      </td>
-                      <td className="min-w-48 text-xs text-base-content/65">
-                        <p>Synced: {formatTimestamp(terminal.last_synced_at)}</p>
-                        <p className="mt-1">Sim time: {terminal.as_of_sim_time ? formatTimestamp(terminal.as_of_sim_time) : 'Unknown'}</p>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
