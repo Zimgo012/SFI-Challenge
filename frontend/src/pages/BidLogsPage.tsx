@@ -5,7 +5,7 @@ import EmptyPanel from '../components/EmptyPanel'
 import PageSection from '../components/PageSection'
 import HistoryCleanup from '../components/HistoryCleanup'
 import BidLogDialog from '../components/BidLogDialog'
-import { BID_LOG_PAGE_SIZE, filterBidLogs, getBidDate, getBidLogPage, sortBidLogs } from '../utils/bid-logs'
+import { BID_LOG_PAGE_SIZE, bidOrderTypeColor, bidStatusColor, filterBidLogs, getBidDate, getBidLogPage, sortBidLogs } from '../utils/bid-logs'
 import type { BidDateField, BidSortField, BidStatusFilter, SortDirection } from '../utils/bid-logs'
 
 const columns: Array<{ field: BidSortField; label: string }> = [
@@ -196,10 +196,10 @@ export default function BidLogsPage() {
                     <th scope="row" className="font-normal">
                       <p className="font-semibold text-primary">{bid.order.external_id}</p>
                     </th>
-                    <td><span className="badge badge-sm badge-outline whitespace-nowrap">{fixedRate ? 'Fixed rate' : 'Open bid'}</span></td>
+                    <td><span className={`badge badge-sm badge-soft whitespace-nowrap ${bidOrderTypeColor(bid.order.order_type)}`}>{fixedRate ? 'Fixed rate' : 'Open bid'}</span></td>
                     <td>
-                      <span className="badge badge-sm badge-soft badge-primary capitalize whitespace-nowrap">{bid.order.status.replaceAll('_', ' ')}</span>
-                      {!fixedRate && <p className={`mt-1 text-xs capitalize ${bid.outcome === 'rejected' ? 'text-error' : 'text-base-content/60'}`}>{bid.outcome.replaceAll('_', ' ')}</p>}
+                      <span className={`badge badge-sm badge-soft capitalize whitespace-nowrap ${bidStatusColor(bid.order.status)}`}>{bid.order.status.replaceAll('_', ' ')}</span>
+                      {!fixedRate && <p className="mt-1"><span className={`badge badge-xs badge-soft capitalize whitespace-nowrap ${bidStatusColor(bid.outcome)}`}>{bid.outcome.replaceAll('_', ' ')}</span></p>}
                     </td>
                     <td className="whitespace-nowrap">
                       {bid.order.origin_terminal_code ?? 'Unknown'} → {bid.order.destination_terminal_code ?? 'Unknown'}

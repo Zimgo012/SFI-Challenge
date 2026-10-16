@@ -3,6 +3,7 @@ import type { BidView } from '../api/bids'
 import { amount, label, timestamp } from '../utils/load-format'
 import LoadInformation from './LoadInformation'
 import Field from './LoadField'
+import { bidOrderTypeColor, bidStatusColor } from '../utils/bid-logs'
 
 export default function BidLogDialog({ bid, onClose }: { bid: BidView; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -39,13 +40,13 @@ export default function BidLogDialog({ bid, onClose }: { bid: BidView; onClose: 
         </header>
         <div className="min-h-0 space-y-7 overflow-y-auto p-6">
           <div className="flex flex-wrap gap-2">
-            <span className="badge badge-outline">{bid.order.order_type === 'fixed_rate' ? 'Fixed rate' : 'Open bid'}</span>
-            <span className="badge badge-soft badge-primary capitalize">{label(bid.order.status)}</span>
-            {bid.order.order_type !== 'fixed_rate' && <span className="badge badge-outline capitalize">{label(bid.outcome)}</span>}
+            <span className={`badge badge-soft ${bidOrderTypeColor(bid.order.order_type)}`}>{bid.order.order_type === 'fixed_rate' ? 'Fixed rate' : 'Open bid'}</span>
+            <span className={`badge badge-soft capitalize ${bidStatusColor(bid.order.status)}`}>{label(bid.order.status)}</span>
+            {bid.order.order_type !== 'fixed_rate' && <span className={`badge badge-soft capitalize ${bidStatusColor(bid.outcome)}`}>{label(bid.outcome)}</span>}
           </div>
           <dl className="grid grid-cols-2 gap-5 rounded-xl bg-base-200 p-4 sm:grid-cols-3">
             <Field title={bid.order.order_type === 'fixed_rate' ? 'Fixed rate' : 'Bid amount'}>{amount(bid.order.order_type === 'fixed_rate' ? bid.order.offered_rate : bid.bid_rate)}</Field>
-            <Field title="Submission status">{bid.request_status ? label(bid.request_status) : 'Not available'}</Field>
+            <Field title="Submission status">{bid.request_status ? <span className={`badge badge-sm badge-soft capitalize ${bidStatusColor(bid.request_status)}`}>{label(bid.request_status)}</span> : 'Not available'}</Field>
             <Field title="Decision time">{timestamp(bid.decision_at)}</Field>
             <Field title="Action ID">{bid.action_id}</Field>
           </dl>

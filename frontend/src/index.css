@@ -90,3 +90,35 @@
   --depth: 1;
   --noise: 0;
 }
+
+/* Additional history states keep distinct hues in both themes. */
+.badge.bid-status-expired {
+  background-color: #ffedd5;
+  color: #9a3412;
+  border-color: #fed7aa;
+}
+.badge.bid-status-lost {
+  background-color: #ede9fe;
+  color: #5b21b6;
+  border-color: #ddd6fe;
+}
+.badge.bid-status-completed {
+  background-color: #ccfbf1;
+  color: #115e59;
+  border-color: #99f6e4;
+}
+[data-theme='dark'] .badge.bid-status-expired {
+  background-color: #431407;
+  color: #fdba74;
+  border-color: #9a3412;
+}
+[data-theme='dark'] .badge.bid-status-lost {
+  background-color: #2e1065;
+  color: #c4b5fd;
+  border-color: #6d28d9;
+}
+[data-theme='dark'] .badge.bid-status-completed {
+  background-color: #042f2e;
+  color: #5eead4;
+  border-color: #0f766e;
+}

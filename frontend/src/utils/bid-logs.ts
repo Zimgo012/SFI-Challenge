@@ -5,6 +5,24 @@ export type BidSortField = 'order' | 'type' | 'status' | 'route' | 'amount' | 'o
 export type SortDirection = 'asc' | 'desc'
 export type BidStatusFilter = 'all' | 'accepted' | 'declined' | 'rejected' | 'expired' | 'pending' | 'lost' | 'in_transit' | 'completed' | 'unknown'
 
+export function bidOrderTypeColor(orderType: string) {
+  return orderType === 'fixed_rate' ? 'badge-success' : orderType === 'open_bid' ? 'badge-info' : 'badge-neutral'
+}
+
+export function bidStatusColor(status: string) {
+  const colors: Record<string, string> = {
+    accepted: 'badge-success', won: 'badge-success', succeeded: 'badge-success',
+    bid_submitted: 'badge-warning', pending: 'badge-warning', submitting: 'badge-warning',
+    rejected: 'badge-error', failed: 'badge-error',
+    declined: 'badge-neutral',
+    expired: 'bid-status-expired',
+    bid_lost: 'bid-status-lost', lost: 'bid-status-lost',
+    in_transit: 'badge-info',
+    completed: 'bid-status-completed',
+  }
+  return colors[status] ?? 'badge-neutral'
+}
+
 export function filterBidLogs(bids: BidView[], status: BidStatusFilter) {
   return bids.filter((bid) => {
     if (status === 'all') return true
