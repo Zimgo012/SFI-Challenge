@@ -41,11 +41,15 @@ def input_error(error: dict) -> dict:
     elif kind == "extra_forbidden":
         code, message = "UNEXPECTED_FIELD", "Field is not part of the pricing contract."
     elif kind == "literal_error":
-        code, message = (
-            ("UNSUPPORTED_UNIT", "Use miles, pounds, degrees and USD; no conversion is applied.")
-            if "units" in location
-            else ("UNSUPPORTED_ORDER_TYPE", "Pricing requires an open_bid order.")
-        )
+        if "units" in location:
+            code, message = (
+                "UNSUPPORTED_UNIT",
+                "Use miles, pounds, degrees and USD; no conversion is applied.",
+            )
+        elif "order_type" in location:
+            code, message = "UNSUPPORTED_ORDER_TYPE", "Pricing requires an open_bid order."
+        else:
+            code, message = "INVALID_VALUE", "Use the documented field value."
     elif kind == "finite_number":
         code, message = "NONFINITE_NUMBER", "Number must be finite."
     elif kind in {"greater_than", "greater_than_equal", "less_than_equal", "less_than"}:
@@ -62,7 +66,13 @@ class PricingRoute(APIRoute):
         original = super().get_route_handler()
 
         async def handler(request: Request):
-            record = PricingLog()
+            record = PricingLog(
+                endpoint=(
+                    self.path
+                    if self.path in {"/api/v1/predict-bid", "/api/v1/manual-mode/evaluate"}
+                    else "/api/v1/predict-bid"
+                )
+            )
             token = current_log.set(record)
             try:
                 try:
@@ -337,4 +347,14 @@ def create_pricing_router(bundle_path: Path | None = None) -> APIRouter:
             diagnostic("MODEL_INFERENCE_FAILED", error)
             return failure("MODEL_ERROR")
 
+    from sfi_model.api.manual import ManualModeResponse, create_manual_endpoint
+
+    router.add_api_route(
+        "/manual-mode/evaluate",
+        create_manual_endpoint(predict_bid),
+        methods=["POST"],
+        response_model=ManualModeResponse,
+        summary="Compare an authoritative manual bid with advisory pricing",
+        responses={422: {"model": PricingErrorResponse}},
+    )
     return router

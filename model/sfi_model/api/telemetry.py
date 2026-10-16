@@ -14,6 +14,7 @@ ERROR_CODES = {
     "INVALID_REQUEST",
     "MISSING_REQUIRED_FIELD",
     "INVALID_TYPE",
+    "INVALID_VALUE",
     "NONFINITE_NUMBER",
     "OUT_OF_RANGE",
     "UNSUPPORTED_UNIT",
@@ -59,6 +60,7 @@ def identifier(value):
 
 @dataclass
 class PricingLog:
+    endpoint: str = "/api/v1/predict-bid"
     request_id: str = field(default_factory=lambda: uuid4().hex)
     started: float = field(default_factory=time.perf_counter)
     status: int = 500
@@ -145,6 +147,8 @@ def finish(record: PricingLog):
         outcome, level = "review", logging.ERROR
     elif record.status >= 400:
         outcome, level = "rejected", logging.WARNING
+    elif record.error_code is not None:
+        outcome, level = "advisory_unavailable", logging.WARNING
     elif record.pricing_source == "baseline":
         outcome, level = "fallback_advisory", logging.WARNING
     else:
@@ -155,7 +159,7 @@ def finish(record: PricingLog):
             "event": "pricing_request",
             "request_id": record.request_id,
             "api_version": "v1",
-            "endpoint": "/api/v1/predict-bid",
+            "endpoint": record.endpoint,
             "http_status": record.status,
             "outcome": outcome,
             "latency_ms": round(max(0, time.perf_counter() - record.started) * 1000, 3),
