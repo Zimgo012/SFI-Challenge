@@ -7,6 +7,7 @@ export const endpoints = {
     webSocket: '/api/loads/ws',
     detail: (externalId: string) => `/api/loads/${id(externalId)}`,
     costPreview: (externalId: string) => `/api/loads/${id(externalId)}/cost-preview`,
+    priceAnalysis: (externalId: string) => `/api/loads/${id(externalId)}/price-analysis`,
     evaluate: (externalId: string) => `/api/loads/${id(externalId)}/evaluate`,
     accept: (externalId: string) => `/api/loads/${id(externalId)}/accept`,
     decline: (externalId: string) => `/api/loads/${id(externalId)}/decline`,

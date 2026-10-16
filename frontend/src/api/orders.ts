@@ -1,7 +1,7 @@
 import { apiFetch, withQuery } from './client'
 import { env } from '../config/env'
 import { endpoints } from './endpoints'
-import type { CostPreviewRequest, ActionRequest, ActionResult, BidRequest, LoadStreamEvent, LoadView, PaginationParams, SystemStatus } from './types'
+import type { CostPreviewRequest, PriceAnalysisRequest, ActionRequest, ActionResult, BidRequest, LoadStreamEvent, LoadView, PaginationParams, SystemStatus } from './types'
 import { isValidBidAmount } from '../utils/bid-amount'
 import { apiFeedback } from '../utils/api-feedback'
 
@@ -60,6 +60,19 @@ export async function evaluateOrder(
   options: RequestInit = {},
 ) {
   return apiFetch(endpoints.loads.evaluate(externalId), {
+    ...options,
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+// On-demand analysis is advisory only; this never submits a booking or bid.
+export async function getPriceAnalysis(
+  externalId: string,
+  body: PriceAnalysisRequest,
+  options: RequestInit = {},
+) {
+  return apiFetch(endpoints.loads.priceAnalysis(externalId), {
     ...options,
     method: 'POST',
     body: JSON.stringify(body),
@@ -253,4 +266,4 @@ export async function getOrderExpiration(
   return apiFetch(endpoints.orderExpiration(externalId), { ...options, method: 'GET' })
 }
 
-export type { CostPreviewRequest, DispatchEvaluation, ExpectedEconomics, OrderRecommendations, RankedMatch, ActionRequest, ActionResult, ActionView, AssignmentView, BidRequest, EvaluationView, LoadDetail, LoadStreamEvent, LoadStreamMessage, LoadView, OrderExpiration } from './types'
+export type { CostPreviewRequest, PriceAnalysisRequest, PriceAnalysisResult, DispatchEvaluation, ExpectedEconomics, OrderRecommendations, RankedMatch, ActionRequest, ActionResult, ActionView, AssignmentView, BidRequest, EvaluationView, LoadDetail, LoadStreamEvent, LoadStreamMessage, LoadView, OrderExpiration } from './types'

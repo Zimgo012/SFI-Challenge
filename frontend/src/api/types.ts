@@ -602,6 +602,117 @@ export interface CostPreviewRequest {
   unit_id?: string
 }
 
+export interface PriceAnalysisRequest {
+  bid_rate: DecimalString
+  unit_id?: string
+  lane_id?: string
+  request_id?: string
+}
+
+export interface PriceAnalysisWarning {
+  code: string
+  message: string
+  fields?: string[]
+  details?: Record<string, unknown>
+}
+
+export interface ModelBackendEconomics {
+  source: 'backend'
+  total_estimated_cost_dollars: number | null
+  gross_profit_dollars: number | null
+  margin_percent: number | null
+}
+
+export interface ModelPriceAdvice {
+  pricing_source: 'model' | 'baseline'
+  model_version: string | null
+  predicted_bid_dollars: number
+  predicted_bid_rpm: number
+  status?: 'fallback_advisory' | null
+  currency: 'USD'
+  distance_basis: 'loaded_miles'
+  advisory_only: true
+  submission_enabled: false
+  requires_guardrail_checks: true
+  requires_review: true
+  baseline_reference: {
+    predicted_bid_dollars?: number
+    predicted_bid_rpm?: number
+    reference_source?: string
+    policy_version?: string
+    reason?: string
+    [key: string]: unknown
+  }
+  uncertainty: { status?: string; [key: string]: unknown }
+  warnings: PriceAnalysisWarning[]
+  release_status?: string
+  [key: string]: unknown
+}
+
+export interface ModelUnavailableAdvice {
+  status: 'unavailable'
+  http_status: number
+  error: { code?: string; message?: string; errors?: Array<{ field?: string; message?: string }>; [key: string]: unknown }
+}
+
+export interface ModelManualResponse {
+  api_version: 'v1'
+  mode: 'manual'
+  manual_bid_dollars: number
+  backend_economics: ModelBackendEconomics
+  economics_verified: false
+  advisory: ModelPriceAdvice | ModelUnavailableAdvice
+  comparison: {
+    manual_bid_rpm: number | null
+    manual_minus_advisory_dollars: number | null
+    absolute_reference_deviation_percent: number | null
+  }
+  warnings: PriceAnalysisWarning[]
+  advisory_only: true
+  submission_enabled: false
+  requires_guardrail_checks: true
+}
+
+export interface PriceAnalysisResult {
+  request_id: string
+  external_id: string
+  bid_rate: DecimalString
+  requested_unit_id: string | null
+  order_last_synced_at: string | null
+  analyzed_at_wall: string
+  lane_id_source: 'request' | 'board_terminal_codes' | 'missing'
+  deterministic_evaluation: DispatchEvaluation
+  model_request: {
+    shipment: {
+      order_type: 'open_bid'
+      distance_miles: number
+      weight_lbs: number
+      origin_latitude: number
+      origin_longitude: number
+      destination_latitude: number
+      destination_longitude: number
+      lane_id: string
+      origin_state: string
+      destination_state: string
+    }
+    manual_bid_dollars: number
+    backend_economics: ModelBackendEconomics
+    warning_policy: {
+      minimum_profit_dollars: number | null
+      minimum_margin_percent: number | null
+      maximum_reference_deviation_percent: number
+    }
+  } | null
+  model_response: ModelManualResponse | null
+  advisory_status: 'model' | 'baseline' | 'unavailable'
+  prediction_id: string | null
+  error: { code: string; message: string; http_status?: number | null; fields: string[] } | null
+  warnings: string[]
+  advisory_only: true
+  submission_enabled: false
+  requires_guardrail_checks: true
+}
+
 export interface HistoryCleanupParams {
   count: number
   dry_run?: boolean

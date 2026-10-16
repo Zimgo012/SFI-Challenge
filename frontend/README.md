@@ -157,7 +157,8 @@ controls or a slider. Accept offer inside the panel submits the acceptance only
 after an eligible current preview. Open-bid analysis retains its linked margin
 and bid inputs; only submitting that form sends a bid.
 The analyzer uses a wide panel with margin controls and key profit figures beside
-Economics and Order details tabs. Compact eligibility checks appear below the margin controls. Its submit button stays visible
+Price analysis, Economics, and Order details tabs. Both open-bid and fixed-rate
+cards open Price analysis first. Compact eligibility checks appear below the margin controls. Its submit button stays visible
 at the bottom; smaller screens stack the sections above that footer.
 The percentage input and slider calculate
 the bid from selected-unit total cost, rounded up to cents; a manual bid can
@@ -173,6 +174,48 @@ Escape/backdrop dismissal, and reduced-motion support. Countdown
 values are labeled as simulated seconds at the last update. Disconnects retain
 previous results with a warning and reconnect automatically; leaving the page
 closes the connection and cancels timers.
+
+Opening Price analysis for an open bid automatically requests
+`POST /api/loads/{external_id}/price-analysis`. Its responsive SVG line chart plots
+required bid against profit margin using the backend's estimated cost, with
+the price axis fitted to the displayed values and a baseline touching the curve's
+starting point. Reference prices below that starting price remain visible, with
+horizontal reference lines for cost, minimum profitable bid, model or baseline
+advice, and historical baseline. Prices and the current margin appear inside
+compact callout boxes connected to their points; nearby callouts are spaced apart
+without moving the underlying data. The numeric legend below the plot is removed.
+The current bid marker moves immediately as
+the slider or bid input changes; backend refreshes are debounced by 500ms. Missing
+values stay unavailable rather than becoming zero. Compact bar charts below the
+line chart use compact vertical columns with values above and labels below,
+arranged side by side when the panel is wide enough: profit and bid/advisory difference in USD, margin and deviation
+in percent, and bid/advisory rates in USD per loaded mile. Each group has its own
+scale and shows negative values below zero. The duplicate current-bid
+readout and analysis options are omitted. Model support, release,
+and uncertainty warnings remain visible. HTTP 200 with unavailable advice retains deterministic
+economics and shows the backend's error message.
+
+Fixed-rate Price analysis reuses the automatic `/cost-preview` response with no
+`bid_rate` in the request. It shows the immutable offered payout on the margin
+curve, cost and minimum profitable rate callouts, and vertical bars for cost,
+gross profit, margin/configured minimum, and offered/cost rates per loaded mile.
+Unavailable costs stay unavailable, and unknown distances never produce a rate.
+The fixed-rate view does not contact the open-bid-only model endpoint or show
+invented model advice. Acceptance and its eligibility checks are unchanged.
+
+Analysis uses the current bid and a fresh request UUID; the backend selects the
+current eligible unit and resolves the lane from the order's terminal codes.
+Changed bid, shipment attributes, or an explicit unit invalidate
+results and abort pending reads; unchanged heartbeat metadata preserves them.
+While a new bid is being analyzed, the chart keeps the previous references for
+the same shipment/unit, explicitly labeled, with the live bid marker. Returned
+profit/comparison charts wait for a matching response. Shipment/unit/lane changes
+clear those references. Leaving the tab cancels outstanding requests and debounce
+timers. Failed requests expose Retry analysis; they are not retried in a loop.
+Advice never changes the bid or the existing submission checks.
+`getPriceAnalysis` is exported with the other order APIs and returns the native
+Response. The browser uses the existing dispatcher proxy; configure the model
+URL on the backend as described in the updated API reference.
 
 Booking submissions disable duplicate actions and preserve `sync_pending`
 success. Uncertain failures are not retried automatically; Check status reads

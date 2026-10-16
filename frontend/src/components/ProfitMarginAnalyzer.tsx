@@ -5,9 +5,11 @@ import type { LoadView, OrderRecommendations } from '../api/orders'
 import { amount, label, quantity, timestamp } from '../utils/load-format'
 import { bidForMargin, marginForBid, normalizeBid, validMargin } from '../utils/profit-margin'
 import { apiFeedback, readableMessage } from '../utils/api-feedback'
+import PriceAnalysisPanel from './PriceAnalysisPanel'
 
 type Preview = { key: string; report?: OrderRecommendations; error?: string }
-type Props = { load: LoadView; canSubmit: boolean; pending: boolean; onSubmitBid: (rate: string) => Promise<void>; onAccept: () => Promise<void>; orderInformation: ReactNode; initialTab?: 'economics' | 'order' }
+type ReviewTab = 'price' | 'economics' | 'order'
+type Props = { load: LoadView; canSubmit: boolean; pending: boolean; onSubmitBid: (rate: string) => Promise<void>; onAccept: () => Promise<void>; orderInformation: ReactNode; initialTab?: ReviewTab }
 
 const checkNames: Record<string, string> = {
   offer_open_unexpired: 'Offer open & unexpired',
@@ -32,8 +34,8 @@ async function preview(loadId: string, bid: string | null, signal: AbortSignal):
   return body
 }
 
-export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmitBid, onAccept, orderInformation, initialTab = 'economics' }: Props) {
-  const [tab, setTab] = useState<'economics' | 'order'>(initialTab)
+export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmitBid, onAccept, orderInformation, initialTab }: Props) {
+  const [tab, setTab] = useState<ReviewTab>(initialTab ?? 'price')
   const [margin, setMargin] = useState('15')
   const [manualBid, setManualBid] = useState('')
   const [mode, setMode] = useState<'margin' | 'manual'>('margin')
@@ -159,10 +161,11 @@ export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmi
       </section>
       <section aria-label="Order review" className="flex min-h-64 flex-col border-t border-base-300 lg:min-h-0 lg:border-t-0 lg:border-l">
         <div className="flex shrink-0 gap-1 border-b border-base-300 px-4 pt-3" aria-label="Review sections">
-          {([['economics', 'Economics'], ['order', 'Order details']] as const).map(([value, name]) => <button key={value} type="button" aria-pressed={tab === value} aria-controls={`bid-review-${value}`} className={`min-w-0 flex-1 border-b-2 px-2 py-3 text-xs font-medium ${tab === value ? 'border-primary text-primary' : 'border-transparent text-base-content/60 hover:text-base-content'}`} onClick={() => setTab(value)}>{name}</button>)}
+          {([['price', 'Price analysis'], ['economics', 'Economics'], ['order', 'Order details']] as const).map(([value, name]) => <button key={value} type="button" aria-pressed={tab === value} aria-controls={`bid-review-${value}`} className={`min-w-0 flex-1 border-b-2 px-2 py-3 text-xs font-medium ${tab === value ? 'border-primary text-primary' : 'border-transparent text-base-content/60 hover:text-base-content'}`} onClick={() => setTab(value)}>{name}</button>)}
         </div>
         <div className="min-h-0 flex-1 space-y-4 p-5 lg:overflow-y-auto lg:p-6">
         <div id="bid-review-order" hidden={tab !== 'order'}>{orderInformation}</div>
+        <div id="bid-review-price" hidden={tab !== 'price'}>{tab === 'price' && <PriceAnalysisPanel load={load} bid={proposedBid} fixedPreview={baseReport} fixedLoading={loading} fixedError={error} onRefreshFixed={() => setRetry((value) => value + 1)} />}</div>
         <div id="bid-review-economics" hidden={tab !== 'economics'}>
       {selected && economics && <div className="space-y-3">
         <p className="text-xs text-base-content/60">Recommended unit <strong className="text-base-content">{selected.unit_number}</strong> · {quantity(economics.projected_deadhead_miles, 'mi deadhead')}</p>

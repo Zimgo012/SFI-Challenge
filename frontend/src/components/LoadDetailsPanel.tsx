@@ -57,7 +57,7 @@ export default function LoadDetailsPanel({ load, initialBidOpen, canSubmit, pend
         {hasAnalysis ? <>
           {notification && <div className="max-h-[35dvh] shrink-0 overflow-y-auto"><LoadNotification feedback={notification} onCheckStatus={onCheckStatus} /></div>}
           {!notification && message && <div role="alert" className="alert alert-warning shrink-0 rounded-none"><p>{message}</p>{onCheckStatus && <button type="button" className="btn btn-sm btn-outline" onClick={onCheckStatus}>Check status</button>}</div>}
-          <ProfitMarginAnalyzer load={load} canSubmit={canSubmit} pending={pending} onSubmitBid={onSubmitBid} onAccept={onAccept} orderInformation={<LoadInformation load={load} />} initialTab={initialBidOpen ? 'economics' : 'order'} />
+          <ProfitMarginAnalyzer load={load} canSubmit={canSubmit} pending={pending} onSubmitBid={onSubmitBid} onAccept={onAccept} orderInformation={<LoadInformation load={load} />} initialTab={initialBidOpen ? 'price' : 'order'} />
         </> : <div className="min-h-0 flex-1 space-y-7 overflow-y-auto p-6">
           <div className="flex flex-wrap gap-2">
             <span className="badge badge-outline badge-primary">{label(load.order_type)}</span>
