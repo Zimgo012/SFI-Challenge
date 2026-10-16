@@ -27,7 +27,6 @@ export default function FixedRatePriceAnalysis({ load, report, loading = false, 
   return <section aria-label="Price analysis" className="space-y-3" aria-busy={loading}>
     <div>
       <h3 className="text-base font-semibold">Price analysis</h3>
-      <p className="mt-1 text-[11px] text-base-content/60">Compare the fixed offer with costs, profit requirements, and historical lane prices.</p>
     </div>
     {loading && <p role="status" className="flex items-center gap-2 text-xs text-base-content/60"><span className="loading loading-spinner loading-xs" />Updating fixed-rate analysis…</p>}
     {error && <p role="alert" className="text-xs text-error">{error}</p>}

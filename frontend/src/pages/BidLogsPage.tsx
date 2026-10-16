@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { usePageStatus } from '../context/page-status'
 import { subscribeBidLogs } from '../api/bids'
 import type { BidView, LiveBidLogsState } from '../api/bids'
 import EmptyPanel from '../components/EmptyPanel'
@@ -53,6 +54,7 @@ export default function BidLogsPage() {
     error: null,
   })
   const [sortField, setSortField] = useState<BidSortField>('decision')
+  usePageStatus(connection, error)
   const [direction, setDirection] = useState<SortDirection>('desc')
   const [dateField, setDateField] = useState<BidDateField>('decision')
   const [statusFilter, setStatusFilter] = useState<BidStatusFilter>('all')
@@ -93,9 +95,6 @@ export default function BidLogsPage() {
         <p role="status" className="text-sm text-base-content/65">
           {bids === null ? 'Loading bid logs…' : `${filteredBids.length} of ${bids.length} records`}
         </p>
-        <span role="status" className={`badge badge-soft ${connection === 'live' && !error ? 'badge-success' : 'badge-warning'}`}>
-          {connection === 'connecting' ? 'Connecting…' : connection === 'reconnecting' ? 'Reconnecting…' : error ? 'Updates delayed' : updating ? 'Updating…' : 'Live updates'}
-        </span>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">

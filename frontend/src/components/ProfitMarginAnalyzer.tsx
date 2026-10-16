@@ -92,14 +92,11 @@ export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmi
       <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[1fr_1.05fr] lg:overflow-hidden">
       <section aria-label={isFixedRate ? 'Review fixed-rate offer' : 'Adjust your bid'} className="space-y-3 bg-primary/5 p-4 lg:overflow-y-auto lg:p-5">
       <div>
-        <span className={`badge badge-sm badge-soft mb-2 ${isFixedRate ? 'badge-success' : 'badge-info'}`}>{isFixedRate ? 'Fixed rate' : 'Open bid'}</span>
         <h3 className="text-lg font-bold text-primary">{isFixedRate ? 'Fixed-rate profit analysis' : 'Set your profit margin'}</h3>
-        <p className="mt-1 text-xs text-base-content/65">{isFixedRate ? 'Review the offered payout, unit-specific costs, and eligibility before accepting.' : 'Adjust either value to see your expected profit.'}</p>
       </div>
       {isFixedRate ? <div className="rounded-xl border border-primary/20 bg-base-100 p-4">
         <p className="text-xs text-base-content/60">Offered rate · USD</p>
         <p className="mt-2 text-3xl font-bold tabular-nums text-primary">{amount(load.offered_rate)}</p>
-        <p className="mt-2 text-xs text-base-content/55">Fixed payout from the board.</p>
       </div> : <>
       <div>
         <label htmlFor="profit-margin" className="mb-2 flex items-center justify-between text-sm font-medium">Target profit margin <span>% of revenue</span></label>

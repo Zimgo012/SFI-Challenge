@@ -5,6 +5,7 @@ import EmptyPanel from '../components/EmptyPanel'
 import PageSection from '../components/PageSection'
 import TerminalFleetSchedules from '../components/TerminalFleetSchedules'
 import { subscribeLoads } from '../api/orders'
+import { usePageStatus } from '../context/page-status'
 
 const statusLabels: Record<TerminalStatus['status'], string> = {
   available: 'Available',
@@ -33,6 +34,7 @@ export default function TerminalsPage() {
   const [revision, setRevision] = useState(0)
   const [scheduleError, setScheduleError] = useState<string | null>(null)
   const hasExpanded = expanded.size > 0
+  usePageStatus(connection, error ?? (hasExpanded ? scheduleError : null))
 
   useEffect(() => subscribeTerminalStatuses((state) => {
     setStream(state)
@@ -68,13 +70,6 @@ export default function TerminalsPage() {
 
   return (
     <PageSection title="Terminals" description="Compare current capacity across hubs.">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <p className="text-sm text-base-content/65">Capacity updates automatically as fleet data syncs.</p>
-        <span role="status" className={`badge badge-soft ${connection === 'live' ? 'badge-success' : 'badge-warning'}`}>
-          {connection === 'live' ? 'Live updates' : connection === 'connecting' ? 'Connecting…' : 'Reconnecting…'}
-        </span>
-      </div>
-
       {error && (
         <div role="alert" className="alert alert-warning">
           <div>

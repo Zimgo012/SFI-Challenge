@@ -29,6 +29,11 @@ Page components live in `src/pages/`. `src/layouts/AppLayout.tsx` provides
 shared navigation with active states; `src/config/navigation.ts` defines its
 labels and links. `src/App.tsx` declares the routes using
 [React Router](https://reactrouter.com/start/declarative/routing).
+The sticky application header contains the large current page title and one
+shared connection-status/speed indicator beside the UTC clock. Pages report
+their own stream/error state to this indicator; dispatcher disconnection and
+clock sync failures also affect it. Page content has no duplicate title banner,
+Live badge or current-time row. The heading remains accessible as the page's h1.
 Unknown URLs show a page-not-found screen. Pages use backend data;
 unavailable figures are not replaced with simulated counts.
 Terminal rows expand with View fleet to show their units and schedules from
@@ -208,6 +213,17 @@ data; missing or mismatched history is not replaced with zero or open-bid histor
 The chart explicitly labels model advice as unavailable because the backend
 rejects fixed-rate analysis with 422. It does not call that endpoint or substitute
 historical prices for model advice. Acceptance and its eligibility checks are unchanged.
+
+Load cards show the Order ID with right-aligned Hot deal and order-type badges
+stacked beside it. Their review panels show the Order ID beside a Fixed rate or
+Open bid badge, with no duplicated status or order-type badge inside the panel.
+A Hot deal flame marks open fixed-rate offers with at least 20% margin against
+the board estimated total cost (`(offered_rate − cost) / offered_rate`). Its
+tooltip identifies the estimate used; unknown rates/costs and open bids do not
+receive a deal badge. This indicator does not replace acceptance guardrails.
+Activity's event-type dropdown groups readable event labels and preserves the
+exact API event names as values. Custom event names remain supported, and Reset
+returns both the dropdown and custom input to all events.
 
 Analysis uses the current bid and a fresh request UUID; the backend selects the
 current eligible unit and resolves the lane from the order's terminal codes.

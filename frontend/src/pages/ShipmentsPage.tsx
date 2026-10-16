@@ -8,6 +8,7 @@ import ShipmentDialog from '../components/ShipmentDialog'
 import { amount, label, timestamp } from '../utils/load-format'
 import { filterShipments, isDeliveryOverdue, sortShipments } from '../utils/shipments'
 import type { ShipmentSort, ShipmentStatus } from '../utils/shipments'
+import { usePageStatus } from '../context/page-status'
 
 const pageSize = 20
 const statusLabels: Record<string, string> = { accepted: 'Accepted', in_transit: 'In transit', completed: 'Delivered' }
@@ -17,6 +18,7 @@ export default function ShipmentsPage() {
     shipments: null, system: null, connection: 'connecting', error: null, revision: 0,
   })
   const [search, setSearch] = useState('')
+  usePageStatus(connection, error)
   const [status, setStatus] = useState<ShipmentStatus>('all')
   const [sort, setSort] = useState<ShipmentSort>('created')
   const [direction, setDirection] = useState<'asc' | 'desc'>('desc')
@@ -43,10 +45,6 @@ export default function ShipmentsPage() {
 
   return (
     <PageSection title="Shipments" description="Track confirmed bookings from acceptance through delivery. Shipment statuses update automatically.">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-base-content/65">{system?.sim_time_utc ? `Simulation time: ${timestamp(system.sim_time_utc)}` : 'Simulation time unavailable'}</p>
-        <span role="status" className={`badge badge-soft ${connection === 'live' && !error ? 'badge-success' : 'badge-warning'}`}>{connection === 'reconnecting' ? 'Reconnecting…' : error ? 'Updates delayed' : connection === 'live' ? 'Live updates' : 'Connecting…'}</span>
-      </div>
       {error && <div role="alert" className="alert alert-warning"><div><p>{error}</p><p className="mt-1 text-sm">{shipments ? 'Showing previous shipments. ' : ''}Live updates will resume automatically when the service recovers.</p></div></div>}
       {shipments !== null && (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

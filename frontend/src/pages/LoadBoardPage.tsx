@@ -9,6 +9,7 @@ import PageSection from '../components/PageSection'
 import LoadNotification from '../components/LoadNotification'
 import type { LoadFeedback } from '../utils/api-feedback'
 import { amount } from '../utils/load-format'
+import { usePageStatus } from '../context/page-status'
 
 const initialState: LiveLoadsState = {
   loads: null,
@@ -19,7 +20,8 @@ const initialState: LiveLoadsState = {
 
 export default function LoadBoardPage() {
   const [orderType, setOrderType] = useState<OrderType | 'all'>('all')
-  const [{ loads: streamedLoads, system, connection, error }, setStream] = useState(initialState)
+  const [{ loads: streamedLoads, connection, error }, setStream] = useState(initialState)
+  usePageStatus(connection, error)
   const loads = streamedLoads === null ? null : getLoadOpportunities(streamedLoads, orderType)
   const [selected, setSelected] = useState<{ load: LoadView; bid: boolean } | null>(null)
   const [decisions, setDecisions] = useState<Record<string, 'submitting' | 'sent' | 'uncertain'>>({})
@@ -128,9 +130,6 @@ export default function LoadBoardPage() {
             <option value="open_bid">Open bid</option>
           </select>
         </label>
-        <span role="status" className={`badge badge-soft ${connection === 'live' ? 'badge-success' : 'badge-warning'}`}>
-          {connection === 'live' ? 'Live updates' : connection === 'connecting' ? 'Connecting…' : 'Reconnecting…'}
-        </span>
       </div>
 
       {error && (
@@ -164,7 +163,6 @@ export default function LoadBoardPage() {
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-base-content/65">
               <p>{loads.length} {loads.length === 1 ? 'order' : 'orders'}</p>
-              {system?.sim_time_utc && <p>Simulation time at update: {new Date(system.sim_time_utc).toLocaleString()}</p>}
             </div>
             <div className="grid items-start gap-5 xl:grid-cols-2 2xl:grid-cols-3">
               {loads.map((load) => (

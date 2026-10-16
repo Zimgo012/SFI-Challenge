@@ -6,6 +6,7 @@ import FleetSchedule from '../components/FleetSchedule'
 import PageSection from '../components/PageSection'
 import { filterFleet } from '../utils/fleet'
 import { label, timestamp } from '../utils/load-format'
+import { usePageStatus } from '../context/page-status'
 
 const pageSize = 20
 
@@ -14,6 +15,7 @@ export default function FleetPage() {
     data: null, connection: 'connecting', updating: false, error: null, revision: 0,
   })
   const [search, setSearch] = useState('')
+  usePageStatus(connection, error)
   const [terminal, setTerminal] = useState('all')
   const [status, setStatus] = useState('all')
   const [page, setPage] = useState(1)
@@ -52,12 +54,6 @@ export default function FleetPage() {
 
   return (
     <PageSection title="Fleet & Schedule" description="Inspect fleet availability, drivers, and confirmed assignment timelines.">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-base-content/65">{data?.system.sim_time_utc ? `Simulation time: ${timestamp(data.system.sim_time_utc)}` : 'Simulation time unavailable'}</p>
-        <span role="status" className={`badge badge-soft ${connection === 'live' && !error ? 'badge-success' : 'badge-warning'}`}>
-          {connection === 'reconnecting' ? 'Reconnecting…' : error ? 'Updates delayed' : updating ? 'Updating…' : connection === 'live' ? 'Live updates' : 'Connecting…'}
-        </span>
-      </div>
       {error && <div role="alert" className="alert alert-warning"><div><p>{error}</p><p className="mt-1 text-sm">{data ? 'Showing previous fleet data. ' : ''}Updates will retry automatically.</p></div></div>}
 
       {data && (

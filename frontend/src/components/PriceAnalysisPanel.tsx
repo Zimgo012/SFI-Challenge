@@ -80,7 +80,6 @@ export default function PriceAnalysisPanel({ load, bid, unitId = null, fixedPrev
   return <section aria-label="Price analysis" className="space-y-3" aria-busy={loading}>
     <div>
       <h3 className="text-base font-semibold">Price analysis</h3>
-      <p className="mt-1 text-[11px] text-base-content/60">Charts update automatically with your margin or bid.</p>
     </div>
     {loading && <p role="status" className="flex items-center gap-2 text-xs text-base-content/60"><span className="loading loading-spinner loading-xs" />Updating analysis…</p>}
     {!normalizedBid && <p className="text-xs text-base-content/60">Enter a valid bid amount to request price analysis.</p>}

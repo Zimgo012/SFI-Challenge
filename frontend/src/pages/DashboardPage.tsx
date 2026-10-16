@@ -6,6 +6,7 @@ import type { LiveOverviewState } from '../api/overview'
 import PageSection from '../components/PageSection'
 import { dashboardRoute, dashboardSummary } from '../utils/dashboard'
 import { amount, timestamp } from '../utils/load-format'
+import { usePageStatus } from '../context/page-status'
 
 const initialState: LiveOverviewState = {
   overview: null, loads: null, terminals: null, system: null,
@@ -44,7 +45,7 @@ export default function DashboardPage() {
   const summary = dashboardSummary(state)
   const loading = overview === null && loads === null
   const boardDelayed = !!system && ['disconnected', 'reconnecting', 'connecting'].includes(system.connection_status)
-  const live = connection === 'live' && !error && !boardDelayed
+  usePageStatus(connection, error ?? (boardDelayed ? 'Board connection delayed' : null))
   const profit = overview?.profit
 
 
@@ -52,7 +53,6 @@ export default function DashboardPage() {
     <PageSection title="Dashboard" description="Your opportunities, capacity, and shipments at a glance.">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          <span role="status" className={`badge badge-soft ${live ? 'badge-success' : 'badge-warning'}`}>{error ? 'Updates delayed' : boardDelayed ? 'Board connection delayed' : connection === 'reconnecting' ? 'Reconnecting…' : live ? 'Live updates' : 'Connecting…'}</span>
           <p className="text-xs text-base-content/55">{updatedAt ? `Summary refreshed ${timestamp(updatedAt)}` : 'Connecting to operations…'}</p>
         </div>
         <button type="button" className="btn btn-ghost btn-sm" disabled={updating} onClick={() => refreshRef.current?.()}>{updating ? 'Refreshing…' : error ? 'Retry' : 'Refresh'}</button>

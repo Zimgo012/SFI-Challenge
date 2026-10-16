@@ -1,10 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router'
 import { navigation } from '../config/navigation'
 import ThemeToggle from '../components/ThemeToggle'
 import SimulationClock from '../components/SimulationClock'
+import { PageStatusContext, type PageStatus } from '../context/page-status'
 
 export default function AppLayout() {
+  const [status, setStatus] = useState<PageStatus | null>(null)
+  const report = useCallback((next: PageStatus) => {
+    setStatus(next)
+    return () => setStatus(current => current?.owner === next.owner ? null : current)
+  }, [])
+  const statusContext = useMemo(() => ({ status, report }), [status, report])
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     window.matchMedia('(min-width: 1024px)').matches,
   )
@@ -23,6 +30,7 @@ export default function AppLayout() {
   }, [pathname, currentPage])
 
   return (
+    <PageStatusContext.Provider value={statusContext}>
     <div className={`min-h-screen bg-base-200 lg:grid ${sidebarOpen ? 'lg:grid-cols-[16rem_1fr]' : 'lg:grid-cols-1'}`}>
       <a href="#main-content" className="btn btn-primary fixed top-2 left-2 z-50 -translate-y-24 focus:translate-y-0">
         Skip to content
@@ -49,7 +57,7 @@ export default function AppLayout() {
         </nav>
       </aside>
       <div className="min-w-0">
-        <header className="sticky top-0 z-20 flex min-h-18 flex-wrap items-center justify-between gap-4 border-b border-base-300 bg-base-100 px-6 py-4 lg:px-10">
+        <header className="sticky top-0 z-20 flex min-h-22 flex-wrap items-center justify-between gap-x-6 gap-y-4 border-b border-base-300 bg-base-100 px-6 py-5 lg:px-10">
           <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
@@ -65,10 +73,10 @@ export default function AppLayout() {
                 <path strokeLinecap="round" strokeLinejoin="round" d={sidebarOpen ? 'M9 4v16m7-11-3 3 3 3' : 'M9 4v16m4-11 3 3-3 3'} />
               </svg>
             </button>
-            <p className="truncate text-sm font-medium">Operations / {currentPage?.label ?? 'Page not found'}</p>
+            <h1 id="page-title" className="text-2xl leading-tight font-bold tracking-tight text-base-content sm:text-3xl">{currentPage?.label ?? 'Page not found'}</h1>
           </div>
-          <div className="flex w-full items-center justify-between gap-4 sm:w-auto sm:justify-end">
-            <SimulationClock />
+          <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end">
+            <div className="rounded-xl bg-base-200/70 px-3 py-2"><SimulationClock /></div>
             <ThemeToggle />
           </div>
         </header>
@@ -77,5 +85,6 @@ export default function AppLayout() {
         </main>
       </div>
     </div>
+    </PageStatusContext.Provider>
   )
 }

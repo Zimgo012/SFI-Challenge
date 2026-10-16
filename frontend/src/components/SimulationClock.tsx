@@ -1,17 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
 import { getSimulationClock, getSystemStatus } from '../api/system'
 import type { SimulationClock as BoardClock, SystemStatus } from '../api/system'
 import { createClockSample, simulationTime } from '../utils/simulation-clock'
 import type { ClockSample } from '../utils/simulation-clock'
+import { PageStatusContext } from '../context/page-status'
+import { headerStatus } from '../utils/header-status'
 
 const dateFormat = new Intl.DateTimeFormat('en-CA', { timeZone: 'UTC', year: 'numeric', month: 'short', day: 'numeric' })
 const timeFormat = new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 
 export default function SimulationClock() {
+  const pageStatus = useContext(PageStatusContext)?.status ?? null
   const [sample, setSample] = useState<ClockSample | null>(null)
   const [now, setNow] = useState(() => performance.now())
   const [syncError, setSyncError] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [boardConnection, setBoardConnection] = useState<string | null>(null)
+  const [statusError, setStatusError] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -21,23 +26,24 @@ export default function SimulationClock() {
     let timer: ReturnType<typeof setTimeout> | undefined
 
     async function readSample(): Promise<ClockSample> {
-      if (import.meta.env.DEV) {
-        try {
-          const response = await getSimulationClock({ signal: controller.signal })
-          if (response.ok) {
-            const clock: BoardClock = await response.json()
-            const value = createClockSample(clock.sim_time_utc, clock.simulation_speed, performance.now())
-            if (value) return value
-          }
-        } catch {
-          if (controller.signal.aborted) throw new Error('Clock read cancelled')
-          // Fall back to the dispatcher when the temporary simulator proxy is unavailable.
-        }
-      }
-      const response = await getSystemStatus({ signal: controller.signal })
-      if (!response.ok) throw new Error('Unable to sync simulation clock')
-      const system: SystemStatus = await response.json()
-      const value = createClockSample(system.sim_time_utc, system.simulation_speed, performance.now())
+      const [status, clock] = await Promise.allSettled([
+        getSystemStatus({ signal: controller.signal }).then(async response => {
+          if (!response.ok) throw new Error('System status unavailable')
+          const system: SystemStatus = await response.json()
+          return system
+        }),
+        import.meta.env.DEV ? getSimulationClock({ signal: controller.signal }).then(async response => {
+          if (!response.ok) throw new Error('Simulator clock unavailable')
+          return await response.json() as BoardClock
+        }) : Promise.resolve(null),
+      ])
+      if (disposed) throw new Error('Clock read cancelled')
+      const system = status.status === 'fulfilled' ? status.value : null
+      setBoardConnection(system?.connection_status ?? null)
+      setStatusError(!system)
+      const simulator = clock.status === 'fulfilled' ? clock.value : null
+      const value = (simulator && createClockSample(simulator.sim_time_utc, simulator.simulation_speed, performance.now()))
+        || (system && createClockSample(system.sim_time_utc, system.simulation_speed, performance.now()))
       if (!value) throw new Error('Simulation clock has not synced yet')
       return value
     }
@@ -84,16 +90,16 @@ export default function SimulationClock() {
 
   const time = simulationTime(sample, now)
   const date = time === null ? null : new Date(time)
+  const status = headerStatus(pageStatus, boardConnection, syncError || statusError, loading)
 
   return (
-    <div role="timer" aria-live="off" aria-label="Simulation clock" className="shrink-0 leading-tight" title={syncError ? 'Clock sync delayed; showing the last known estimate.' : 'Simulation time in UTC. Resyncs automatically.'}>
-      <div className="mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-base-content/60">
-        <span aria-hidden="true" className={`size-1.5 rounded-full ${syncError ? 'bg-warning' : date ? 'bg-success' : 'bg-base-content/30'}`} />
-        <span>Simulation {sample ? `· ${sample.speed.toLocaleString()}×` : ''}</span>
-        {syncError && date && <span className="normal-case tracking-normal">Sync delayed</span>}
+    <div className="shrink-0 leading-tight" title={pageStatus?.error || (syncError ? 'Clock sync delayed; showing the last known estimate.' : 'Simulation time in UTC. Resyncs automatically.')}>
+      <div role="status" className="mb-1 flex items-center gap-2 text-[11px] font-semibold text-base-content/65" aria-label={`Status: ${status.label}${sample ? `; simulation speed ${sample.speed} times` : ''}`}>
+        <span aria-hidden="true" className={`size-2 rounded-full ${status.live ? 'bg-success' : 'bg-warning'}`} />
+        <span>{status.label}{sample ? ` · ${sample.speed.toLocaleString()}×` : ''}</span>
       </div>
       {date ? (
-        <time dateTime={date.toISOString()} className="block whitespace-nowrap text-xs font-semibold tabular-nums text-base-content sm:text-sm">
+        <time role="timer" aria-live="off" aria-label="Simulation clock" dateTime={date.toISOString()} className="block whitespace-nowrap text-xs font-semibold tabular-nums text-base-content sm:text-sm">
           {dateFormat.format(date)} · {timeFormat.format(date)} <span className="font-normal text-base-content/60">UTC</span>
         </time>
       ) : <p className="text-xs text-base-content/60">{loading ? 'Syncing clock…' : 'Clock unavailable'}</p>}

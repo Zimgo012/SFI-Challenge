@@ -4,6 +4,7 @@ import AnalyticsTimeline from '../components/AnalyticsTimeline'
 import PageSection from '../components/PageSection'
 import { analyticsRange, buildAnalytics, utcDay, validateAnalyticsRange, type AnalyticsDateBasis, type AnalyticsOrderType } from '../utils/analytics'
 import { amount, timestamp } from '../utils/load-format'
+import { usePageStatus } from '../context/page-status'
 
 function Breakdown({ title, caption, items, empty }: { title: string; caption: string; items: { label: string; count: number; color: string }[]; empty: string }) {
   const total = items.reduce((sum, item) => sum + item.count, 0)
@@ -18,6 +19,7 @@ function Breakdown({ title, caption, items, empty }: { title: string; caption: s
 
 export default function AnalyticsPage() {
   const [state, setState] = useState(initialAnalyticsState)
+  usePageStatus(state.connection, state.error)
   const [period, setPeriod] = useState('14')
   const [custom, setCustom] = useState({ start: '', end: '' })
   const [basis, setBasis] = useState<AnalyticsDateBasis>('pickup')
@@ -46,7 +48,6 @@ export default function AnalyticsPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          <span role="status" className={`badge badge-sm badge-soft ${state.connection === 'live' && !state.error ? 'badge-success' : 'badge-warning'}`}>{state.error ? 'Updates delayed' : state.connection === 'live' ? 'Live updates' : state.connection === 'reconnecting' ? 'Reconnecting…' : 'Connecting…'}</span>
           <p className="text-xs text-base-content/55">{state.updatedAt ? `Updated ${timestamp(state.updatedAt)}` : 'Loading retained history…'}</p>
         </div>
         <button type="button" className="btn btn-ghost btn-sm" disabled={state.updating} onClick={() => refresh.current?.()}>{state.updating ? 'Refreshing…' : state.error ? 'Retry' : 'Refresh'}</button>

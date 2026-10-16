@@ -1,5 +1,7 @@
 import type { LoadView } from '../api/orders'
+import { Flame } from 'lucide-react'
 import { amount, quantity, timestamp } from '../utils/load-format'
+import { isHotDeal } from '../utils/load-board'
 import Field from './LoadField'
 
 type LoadCardProps = {
@@ -17,15 +19,18 @@ export default function LoadCard({ load, disabled, pending, onAccept, onDecline 
   return (
     <article className="card h-full min-w-0 border border-base-300 bg-base-100">
       <div className="card-body gap-4 p-5">
-        <div className="flex items-center justify-between gap-3">
-          <p className="min-w-0 truncate text-xs text-base-content/60" title={load.external_id}>{load.external_id}</p>
-          <span className={`badge badge-sm badge-soft shrink-0 ${load.order_type === 'fixed_rate' ? 'badge-success' : 'badge-info'}`}>{load.order_type === 'fixed_rate' ? 'Fixed rate' : 'Open bid'}</span>
-        </div>
-        <h2 className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-base font-semibold">
+        <header className="flex items-start justify-between gap-3">
+          <h2 className="min-w-0 truncate text-sm font-semibold" title={load.external_id}>{load.external_id}</h2>
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            {isHotDeal(load) && <span className="badge badge-sm border-warning/30 bg-warning/10 text-warning" title="Offered rate gives at least 20% margin against the board estimated total cost."><Flame aria-hidden="true" className="size-3" />Hot deal</span>}
+            <span className={`badge badge-sm badge-soft ${load.order_type === 'fixed_rate' ? 'badge-success' : 'badge-info'}`}>{load.order_type === 'fixed_rate' ? 'Fixed rate' : 'Open bid'}</span>
+          </div>
+        </header>
+        <h3 className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-base font-semibold">
           <span className="min-w-0 break-words"><span className="mb-1 block text-xs font-normal text-base-content/60">From</span>{origin}</span>
           <span aria-hidden="true" className="text-primary">→</span>
           <span className="min-w-0 break-words"><span className="mb-1 block text-xs font-normal text-base-content/60">To</span>{destination}</span>
-        </h2>
+        </h3>
 
         <dl className="flex items-center justify-between gap-3 border-y border-base-300 py-3">
           <dt className="text-sm text-base-content/65">Estimated total cost</dt>

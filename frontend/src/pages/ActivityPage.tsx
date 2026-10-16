@@ -6,16 +6,19 @@ import ActivityDialog from '../components/ActivityDialog'
 import EmptyPanel from '../components/EmptyPanel'
 import PageSection from '../components/PageSection'
 import HistoryCleanup from '../components/HistoryCleanup'
-import { activityColor, activityEventTypes } from '../utils/activity'
+import { activityColor, activityEventGroups, activityEventLabel, activityEventTypes } from '../utils/activity'
 import { timestamp } from '../utils/load-format'
+import { usePageStatus } from '../context/page-status'
 
 const pageSize = 20
 const initialState: LiveActivityState = { data: null, connection: 'connecting', updating: false, error: null }
 
 export default function ActivityPage() {
   const [{ data, connection, updating, error }, setStream] = useState(initialState)
+  usePageStatus(connection, error)
   const [orderId, setOrderId] = useState('')
   const [eventType, setEventType] = useState('')
+  const [customEventType, setCustomEventType] = useState(false)
   const [applied, setApplied] = useState({ orderId: '', eventType: '' })
   const [page, setPage] = useState(1)
   const [refresh, setRefresh] = useState(0)
@@ -46,6 +49,7 @@ export default function ActivityPage() {
     setStream(initialState)
     setOrderId('')
     setEventType('')
+    setCustomEventType(false)
     setApplied({ orderId: '', eventType: '' })
     setPage(1)
     setRefresh((value) => value + 1)
@@ -59,7 +63,7 @@ export default function ActivityPage() {
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / pageSize))
   const currentPage = Math.min(page, totalPages)
   const offset = data?.offset ?? 0
-  const knownTypes = [...new Set([...activityEventTypes, ...(data?.items.map((event) => event.event_type) ?? [])])].sort()
+  const eventGroups = activityEventGroups([...activityEventTypes, ...(data?.items.map((event) => event.event_type) ?? []), ...(eventType ? [eventType] : [])])
   const selectedEvent = selected ? data?.items.find((event) => event.event_id === selected.event_id) ?? selected : null
 
   return (
@@ -67,13 +71,21 @@ export default function ActivityPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p role="status" className="text-sm text-base-content/65">{data ? `${data.total} ${data.total === 1 ? 'event' : 'events'}` : 'Loading activity…'}</p>
         <div className="flex items-center gap-3">
-          <span role="status" className={`badge badge-soft ${connection === 'live' && !error ? 'badge-success' : 'badge-warning'}`}>{connection === 'reconnecting' ? 'Reconnecting…' : error ? 'Updates delayed' : updating ? 'Updating…' : connection === 'live' ? 'Live updates' : 'Connecting…'}</span>
           <button type="button" className="btn btn-ghost btn-sm" disabled={updating} onClick={() => setRefresh((value) => value + 1)}>{error ? 'Retry' : 'Refresh'}</button>
         </div>
       </div>
       <form className="flex flex-wrap items-end gap-3" onSubmit={applyFilters}>
         <label className="flex flex-col gap-1.5 text-xs font-medium">Order ID (exact)<input type="search" className="input input-sm w-56" placeholder="All orders and system events" value={orderId} onChange={(event) => setOrderId(event.target.value)} /></label>
-        <label className="flex flex-col gap-1.5 text-xs font-medium">Event type (exact)<input className="input input-sm w-60" list="activity-event-types" placeholder="All event types" value={eventType} onChange={(event) => setEventType(event.target.value)} /><datalist id="activity-event-types">{knownTypes.map((type) => <option key={type} value={type} />)}</datalist></label>
+        <label className="flex flex-col gap-1.5 text-xs font-medium">Event type<select className="select select-bordered select-sm w-full sm:w-64" value={customEventType ? '__custom__' : eventType} onChange={event => {
+          const custom = event.target.value === '__custom__'
+          setCustomEventType(custom)
+          if (!custom) setEventType(event.target.value)
+        }}>
+          <option value="">All event types</option>
+          {eventGroups.map(([group, types]) => <optgroup key={group} label={group}>{types.map(type => <option key={type} value={type} title={type}>{activityEventLabel(type)}</option>)}</optgroup>)}
+          <option value="__custom__">Custom event type…</option>
+        </select></label>
+        {customEventType && <label className="flex flex-col gap-1.5 text-xs font-medium">Exact event name<input type="text" className="input input-bordered input-sm w-60" placeholder="e.g. sync.board.error" value={eventType} onChange={event => setEventType(event.target.value)} /></label>}
         <button type="submit" className="btn btn-primary btn-sm">Apply filters</button>
         <button type="button" className="btn btn-ghost btn-sm" onClick={resetFilters}>Reset</button>
       </form>
