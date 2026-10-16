@@ -158,13 +158,21 @@ def describe_preprocessor(processor, report: dict) -> dict:
     }
 
 
-def save_inference_bundle(processor, report: dict, output: Path) -> dict:
+def save_inference_bundle(
+    processor, report: dict, output: Path, *, preprocessor_bytes: bytes | None = None
+) -> dict:
     documents = describe_preprocessor(processor, report)
     contents = {
         name: (json.dumps(value, indent=2, allow_nan=False) + "\n").encode()
         for name, value in documents.items()
     }
-    contents["preprocessor.pkl"] = pickle.dumps(processor)
+    if preprocessor_bytes is not None:
+        restored = describe_preprocessor(pickle.loads(preprocessor_bytes), report)
+        if json.dumps(restored, sort_keys=True) != json.dumps(documents, sort_keys=True):
+            raise ValueError("Original preprocessing bytes differ from the fitted contract")
+    contents["preprocessor.pkl"] = (
+        preprocessor_bytes if preprocessor_bytes is not None else pickle.dumps(processor)
+    )
     hashes = {name: digest(value) for name, value in contents.items()}
     manifest = {
         "schema_version": SCHEMA_VERSION,

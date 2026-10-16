@@ -67,17 +67,26 @@ def read_table(path: Path, fields) -> tuple[list[dict], bytes]:
 
 
 def load_validation_records(dataset: Path, source: Path) -> tuple[list[dict], dict]:
+    return load_partition_records(dataset, source, "validation")
+
+
+def load_partition_records(
+    dataset: Path, source: Path, partition_name: str
+) -> tuple[list[dict], dict]:
+    """Align historical bids and saved rows without model inference or fitting."""
+    if partition_name not in {"validation", "test"}:
+        raise ValueError("Comparison requires validation or final test records")
     report_bytes = (dataset / "split-report.json").read_bytes()
     report = json.loads(report_bytes)
-    partition = report["partitions"]["validation"]
+    partition = report["partitions"][partition_name]
     tables, hashes = {}, {}
     for name, fields in (
         ("features", FEATURE_COLUMNS),
         ("targets", (TARGET_COLUMN,)),
         ("metadata", METADATA_COLUMNS),
     ):
-        tables[name], contents = read_table(dataset / "validation" / f"{name}.csv", fields)
-        hashes[f"validation/{name}.csv"] = hashlib.sha256(contents).hexdigest()
+        tables[name], contents = read_table(dataset / partition_name / f"{name}.csv", fields)
+        hashes[f"{partition_name}/{name}.csv"] = hashlib.sha256(contents).hexdigest()
     count = partition["row_count"]
     if count < 1 or any(len(rows) != count for rows in tables.values()):
         raise ValueError("Validation features, targets, and metadata must align with the manifest")
@@ -131,11 +140,11 @@ def load_validation_records(dataset: Path, source: Path) -> tuple[list[dict], di
             }
         )
     return records, {
-        "partition": "validation",
+        "partition": partition_name,
         "row_count": count,
         "source_sha256": report["source_sha256"],
         "dataset_manifest_sha256": hashlib.sha256(report_bytes).hexdigest(),
-        "validation_files_sha256": hashes,
+        f"{partition_name}_files_sha256": hashes,
     }
 
 
