@@ -583,8 +583,36 @@ export interface RejectedUnit {
   rejection_reasons: Array<string>
 }
 
+export interface MarketStatistics {
+  sample_count: number
+  median: DecimalString | null
+  mean: DecimalString | null
+  minimum: DecimalString | null
+  maximum: DecimalString | null
+  population_stddev: DecimalString | null
+}
+
+export interface HistoricalMarketContext {
+  origin_state: string | null
+  destination_state: string | null
+  order_type: 'fixed_rate' | 'open_bid'
+  matching_method: string
+  since_sim: string
+  through_sim: string
+  radius_miles: DecimalString
+  minimum_samples: number
+  sample_count: number
+  sufficient_samples: boolean
+  lane_ids: string[]
+  payout: MarketStatistics
+  rate_per_mile: MarketStatistics
+  historical_win: { sample_count: number; wins: number; probability: DecimalString | null; label: string }
+  warnings: string[]
+  payout_basis: string
+}
+
 export interface OrderRecommendations {
-  market_context: Record<string, unknown> | null
+  market_context: HistoricalMarketContext | null
   external_id: string
   evaluated_at_sim: string
   horizon_end: string

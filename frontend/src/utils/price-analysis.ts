@@ -1,4 +1,4 @@
-import type { ExpectedEconomics, LoadView, ModelPriceAdvice, PriceAnalysisResult } from '../api/types'
+import type { ExpectedEconomics, HistoricalMarketContext, LoadView, ModelPriceAdvice, PriceAnalysisResult } from '../api/types'
 import { marginForBid, normalizeBid } from './profit-margin'
 
 export function priceAnalysisKey(load: LoadView, bid: string | null, unitId: string | null) {
@@ -17,6 +17,7 @@ export interface FixedPriceAnalysis {
   economics: ExpectedEconomics | null
   offered_rate: string | null
   distance_miles: string | null
+  market_context?: HistoricalMarketContext | null
 }
 
 export type PriceAnalysisReport = PriceAnalysisResult | FixedPriceAnalysis
@@ -101,11 +102,30 @@ export function priceAnalysisLines(result: PriceAnalysisReport) {
     { label: 'Estimated cost', value: chartValue(economics?.total_cost), color: 'stroke-base-content/40', swatch: 'bg-base-content/40' },
     { label: isFixedPriceAnalysis(result) ? 'Minimum profitable rate' : 'Minimum profitable bid', value: chartValue(economics?.minimum_profitable_bid), color: 'stroke-warning', swatch: 'bg-warning' },
   ]
-  if (isFixedPriceAnalysis(result)) return local
+  if (isFixedPriceAnalysis(result)) {
+    const history = fixedPriceHistory(result)
+    return history ? [...local,
+      { label: 'Historical median', value: chartValue(history.payout.median), color: 'stroke-success', swatch: 'bg-success' },
+      { label: 'Historical average', value: chartValue(history.payout.mean), color: 'stroke-info', swatch: 'bg-info' },
+    ] : local
+  }
   return [...local,
     { label: advice?.pricing_source === 'baseline' ? 'Baseline fallback advice' : 'Model advisory', value: chartValue(advice?.predicted_bid_dollars), color: 'stroke-info', swatch: 'bg-info' },
     { label: 'Historical baseline', value: chartValue(advice?.baseline_reference.predicted_bid_dollars), color: 'stroke-success', swatch: 'bg-success' },
   ]
+}
+
+export function fixedPriceHistory(result: FixedPriceAnalysis) {
+  const history = result.market_context
+  return history?.order_type === 'fixed_rate' && history.payout?.sample_count > 0 ? history : null
+}
+
+export function fixedPriceHistoryRange(result: PriceAnalysisReport) {
+  if (!isFixedPriceAnalysis(result)) return null
+  const history = fixedPriceHistory(result)
+  if (!history) return null
+  const minimum = chartValue(history.payout.minimum), maximum = chartValue(history.payout.maximum)
+  return minimum !== null && maximum !== null && minimum <= maximum ? { minimum, maximum } : null
 }
 
 export function priceMarginCurve(result: PriceAnalysisReport, bid: string | null) {

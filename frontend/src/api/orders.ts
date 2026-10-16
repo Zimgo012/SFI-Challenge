@@ -266,4 +266,4 @@ export async function getOrderExpiration(
   return apiFetch(endpoints.orderExpiration(externalId), { ...options, method: 'GET' })
 }
 
-export type { CostPreviewRequest, PriceAnalysisRequest, PriceAnalysisResult, DispatchEvaluation, ExpectedEconomics, OrderRecommendations, RankedMatch, ActionRequest, ActionResult, ActionView, AssignmentView, BidRequest, EvaluationView, LoadDetail, LoadStreamEvent, LoadStreamMessage, LoadView, OrderExpiration } from './types'
+export type { CostPreviewRequest, PriceAnalysisRequest, PriceAnalysisResult, MarketStatistics, HistoricalMarketContext, DispatchEvaluation, ExpectedEconomics, OrderRecommendations, RankedMatch, ActionRequest, ActionResult, ActionView, AssignmentView, BidRequest, EvaluationView, LoadDetail, LoadStreamEvent, LoadStreamMessage, LoadView, OrderExpiration } from './types'

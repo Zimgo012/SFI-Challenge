@@ -1,5 +1,5 @@
 import { useId } from 'react'
-import { isFixedPriceAnalysis, layoutPriceCallouts, priceAnalysisLines, priceMarginCurve, type PriceAnalysisReport } from '../utils/price-analysis'
+import { fixedPriceHistoryRange, isFixedPriceAnalysis, layoutPriceCallouts, priceAnalysisLines, priceMarginCurve, type PriceAnalysisReport } from '../utils/price-analysis'
 import { amount, quantity } from '../utils/load-format'
 
 export default function PriceAnalysisChart({ result, bid }: { result: PriceAnalysisReport; bid: string | null }) {
@@ -8,7 +8,9 @@ export default function PriceAnalysisChart({ result, bid }: { result: PriceAnaly
   const payoutLabel = fixed ? 'Offered rate' : 'Your bid'
   const lines = priceAnalysisLines(result)
   const curve = priceMarginCurve(result, bid)
+  const historyRange = fixedPriceHistoryRange(result)
   const prices = [
+    ...(historyRange ? [historyRange.minimum, historyRange.maximum] : []),
     ...lines.flatMap((line) => line.value === null ? [] : [line.value]),
     ...curve.points.map((point) => point.bid),
     ...(curve.currentBid === null ? [] : [curve.currentBid]),
@@ -44,6 +46,9 @@ export default function PriceAnalysisChart({ result, bid }: { result: PriceAnaly
         <title id={`${id}-title`}>{fixed ? 'Fixed offer by profit margin' : 'Bid price by profit margin'}</title>
         <desc id={`${id}-description`}>{`The curve shows the payout needed at each margin using the backend estimated cost. Connected callout boxes show the payout, margin and reference values. ${payoutLabel}: ${valueLabel(curve.currentBid)}. Current margin: ${quantity(curve.currentMargin, '%')}. ${lines.map((line) => `${line.label}: ${valueLabel(line.value)}`).join('. ')}.`}</desc>
         <text x={left} y={13} className="fill-base-content/60" fontSize={9}>{fixed ? 'Payout (USD)' : 'Bid price (USD)'}</text>
+        {historyRange && <rect data-chart-history="payout-range" x={left} y={y(historyRange.maximum)} width={right - left} height={Math.max(1, y(historyRange.minimum) - y(historyRange.maximum))} className="fill-success/10">
+          <title>{`Historical payout range: ${valueLabel(historyRange.minimum)}–${valueLabel(historyRange.maximum)}. Observed payouts, not a prediction interval.`}</title>
+        </rect>}
         {[0, 0.25, 0.5, 0.75, 1].map((fraction) => <g key={fraction} aria-hidden="true">
           <line x1={left} x2={right} y1={y(minimum + (maximum - minimum) * fraction)} y2={y(minimum + (maximum - minimum) * fraction)} className="stroke-base-300/60" strokeDasharray="3 4" />
           <text x={left - 7} y={y(minimum + (maximum - minimum) * fraction) + 3} textAnchor="end" className="fill-base-content/55" fontSize={9}>{axis.format(minimum + (maximum - minimum) * fraction)}</text>
@@ -68,6 +73,8 @@ export default function PriceAnalysisChart({ result, bid }: { result: PriceAnaly
       </svg>
     </div>
     {!curve.points.length && <p className="mt-2 text-xs text-base-content/60">Cost is unavailable, so the margin curve cannot be calculated.</p>}
+    {fixed && <p className="mt-2 text-[10px] text-base-content/60">Model advisory unavailable: the backend currently supports open bids only.</p>}
+    {historyRange && <p className="mt-1 text-[10px] text-success">Shaded range: historical payouts {valueLabel(historyRange.minimum)}–{valueLabel(historyRange.maximum)}.</p>}
     <p className="mt-2 text-[10px] leading-relaxed text-base-content/50">{fixed ? 'The offered payout is fixed. Curve and minimum rate use backend cost estimates.' : 'Baseline starts at the curve’s initial bid. Price axis fits the analyzed values. Reference prices are advisory.'}</p>
   </figure>
 }

@@ -200,8 +200,14 @@ Fixed-rate Price analysis reuses the automatic `/cost-preview` response with no
 curve, cost and minimum profitable rate callouts, and vertical bars for cost,
 gross profit, margin/configured minimum, and offered/cost rates per loaded mile.
 Unavailable costs stay unavailable, and unknown distances never produce a rate.
-The fixed-rate view does not contact the open-bid-only model endpoint or show
-invented model advice. Acceptance and its eligibility checks are unchanged.
+The same response supplies fixed-rate historical lane context: median and average
+payout callouts plus a shaded observed min/max range on the chart. The history
+summary shows sample counts, rates per mile, payout standard deviation, simulation
+lookback dates, matching method and warnings. Sparse history is marked as limited
+data; missing or mismatched history is not replaced with zero or open-bid history.
+The chart explicitly labels model advice as unavailable because the backend
+rejects fixed-rate analysis with 422. It does not call that endpoint or substitute
+historical prices for model advice. Acceptance and its eligibility checks are unchanged.
 
 Analysis uses the current bid and a fresh request UUID; the backend selects the
 current eligible unit and resolves the lane from the order's terminal codes.
