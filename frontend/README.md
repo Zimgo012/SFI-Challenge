@@ -16,7 +16,7 @@ Open the local URL printed by Vite. `/` redirects to `/dashboard`.
 | Page | Route | Purpose |
 | --- | --- | --- |
 | Dashboard | `/dashboard` | Summary of bid opportunities, fleet capacity, pending bids, and active shipments. |
-| Analytics | `/analytics` | Empty workspace for upcoming analytics and reporting. |
+| Analytics | `/analytics` | Daily estimated profit/loss, bid requests, outcomes, and lane performance with date filters. |
 | Load Board | `/loads` | Live cards for open orders to bid on. |
 | Bid Logs | `/bids` | Review and sort non-open bid orders, with details in a centered dialog. |
 | Terminals | `/terminals` | Compare current capacity across hubs. |
@@ -29,8 +29,8 @@ Page components live in `src/pages/`. `src/layouts/AppLayout.tsx` provides
 shared navigation with active states; `src/config/navigation.ts` defines its
 labels and links. `src/App.tsx` declares the routes using
 [React Router](https://reactrouter.com/start/declarative/routing).
-Unknown URLs show a page-not-found screen. Page content is a scaffold awaiting
-backend data; dashboard values are unavailable rather than simulated counts.
+Unknown URLs show a page-not-found screen. Pages use backend data;
+unavailable figures are not replaced with simulated counts.
 Terminal rows expand with View fleet to show their units and schedules from
 `/api/fleet/schedules?terminal=CODE`. Each unit expands inline to show confirmed
 assignments, occupied windows including turnaround, and provisional reservations.
@@ -268,6 +268,34 @@ pending requests and retry timers.
 
 Production hosting must serve `index.html` for frontend routes so that direct
 links and refreshes work with browser routing.
+
+## Analytics
+
+`/analytics` reads all pages of retained orders from `/api/loads?status=all&include_missing=true`
+and request events from `/api/activity?event_type=action.requested`. It uses no
+sample data and requires no new backend endpoint. Order WebSocket updates trigger
+a serialized refresh; a 30-second poll and Refresh button also reload the data.
+Failed reads preserve the previous results; leaving the page aborts requests and
+cleans up the WebSocket, timers and event listeners. REST history remains the
+source because the live order stream omits removed board records.
+
+The default range is 14 UTC days ending on the backend simulation date. Presets
+cover 7, 14, 30 and 90 days; custom ranges support 1–366 inclusive days. Select
+pickup or delivery day for shipment statistics and optionally filter order type.
+The profit/loss chart shows saved confirmed-booking estimates with positive and
+negative bars and a net line. Missing estimates are excluded and counted;
+pending-bid estimates are separate. These figures are not realized earnings.
+Hover/tap a day or focus a chart and use arrow keys, Home or End for its values.
+
+Daily bids count distinct retained `bid requested` action events by simulation
+timestamp, including repeated attempts and later failures. They do not use order
+creation or scheduled decision time as a submission timestamp. Cleared activity
+cannot be reconstructed; events without simulation timestamps are excluded and
+reported. New opportunities use order creation day. Current won/lost/pending
+outcomes, resolved win rate, order mix, and top five lanes use the selected
+shipment-date cohort. Hiding shipment or bid-list history does not remove
+retained orders from analytics. Imported historical CSV data is not exposed by
+these endpoints and is not included.
 
 ## Commands
 
