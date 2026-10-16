@@ -6,17 +6,37 @@ from pathlib import Path
 
 import torch
 
-from sfi_model.features.schema import build_features
+from sfi_model.features.schema import CATEGORICAL_FEATURES, build_features
+from sfi_model.inference.errors import PredictionInputError
 from sfi_model.inference.model_bundle import load_model_bundle
+from sfi_model.inference.references import PricingReferences
 
 
 class FreightPredictor:
     def __init__(self, bundle: Path):
         self.loaded = load_model_bundle(bundle)
+        self.references = PricingReferences(bundle, self.loaded.metadata)
         self._lock = threading.Lock()
 
     def predict(self, shipment: dict) -> dict:
-        features = build_features(shipment)
+        try:
+            features = build_features(shipment)
+        except ValueError as error:
+            raise PredictionInputError("INVALID_MODEL_INPUT", []) from error
+        unknown = [
+            {
+                "field": name,
+                "code": "UNSEEN_CATEGORY",
+                "message": "Category was not present in training; review is required.",
+            }
+            for name in CATEGORICAL_FEATURES
+            if features[name]
+            not in {
+                entry["value"] for entry in self.loaded.preprocessing.categorical_mappings[name]
+            }
+        ]
+        if unknown:
+            raise PredictionInputError("UNSEEN_CATEGORY", unknown)
         encoded = self.loaded.preprocessing.transform([features])
         with self._lock, torch.inference_mode():
             rpm = self.loaded.model(torch.from_numpy(encoded)).item()
@@ -32,4 +52,5 @@ class FreightPredictor:
             "distance_basis": "loaded_miles",
             "advisory_only": True,
             "release_status": self.loaded.metadata["release_status"],
+            **self.references.describe(features),
         }
