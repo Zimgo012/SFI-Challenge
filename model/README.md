@@ -6,18 +6,23 @@ Source code is grouped by domain under `sfi_model/`, with matching test folders:
 sfi_model/
   data/          # validation, open-bid preparation, chronological splitting
   features/      # feature schema and shared preprocessing
+  baselines/     # training-only non-ML pricing references
+  evaluation/    # validation price comparisons
   inference/     # versioned preprocessing bundle export/loading
   training/      # synthetic PyTorch setup example
   paths.py       # shared project paths
 tests/
   data/
   features/
+  baselines/
+  evaluation/
   inference/
 requirements/
   data/
   model/
   operations/
   evaluation/
+  baselines/
   inference/
   requirements.md  # master checklist
 ```
@@ -130,6 +135,92 @@ and call `.transform([shipment])` to obtain the encoded float32 inputs without
 refitting. Load using the locked training environment; incompatible versions or
 changed artifacts are rejected. See `requirements/inference/inference-artifacts.md` for a
 complete example. This bundle contains preprocessing, not trained pricing weights.
+
+## Global median pricing baseline
+
+```sh
+uv run python -m sfi_model.baselines.global_median
+```
+
+Fits the median of `train/targets.csv` only, checking its alignment and provenance
+against the training metadata and split manifest. The current reference is
+**2.9090003985451105 USD/mile** from 756 training records, saved in
+`artifacts/baselines/global-median-v1.json`. No validation/test files are read.
+Use a new `--output` path for another version; existing artifacts are preserved.
+See `requirements/baselines/global-median.md` for the reusable loader.
+
+## Lane median pricing baseline
+
+```sh
+uv run python -m sfi_model.baselines.lane_median --min-lane-samples 5
+```
+
+Uses training data only. Lanes with at least five examples use their own median;
+sparse and unseen lanes use the global training median. The current artifact,
+`artifacts/baselines/lane-median-v1.json`, contains 41 eligible and 47 sparse lanes.
+The sample threshold is configurable; choose a new `--output` when changing it.
+`load_lane_median(...).predict(lane_id)` returns RPM, reference source, sample count,
+and fallback reason. See `requirements/baselines/lane-median.md` for details.
+
+## Conditional market-RPM baseline
+
+```sh
+uv run python -m sfi_model.baselines.market_rpm
+```
+
+Saves `artifacts/baselines/market-rpm-v1.json`. The baseline uses an approved,
+finite-positive USD/loaded-mile quote only when its observation/publication times
+precede the bid and its freshness and shipment/lane checks pass. It never fits
+against bids or silently substitutes another price.
+
+The current CSV's RPM helpers are offer-derived, so this baseline is explicitly
+unavailable until an independent pre-bid feed/snapshot is supplied. See
+`requirements/baselines/market-rpm.md` for the quote contract and loader.
+
+## Validation bid-dollar comparisons
+
+```sh
+uv run python -m sfi_model.evaluation.bid_comparison
+```
+
+Converts saved global/lane RPM references to dollars using loaded miles and
+compares them with original submitted bids for the 162 validation shipments.
+Outputs `comparisons.csv` and `report.json` in
+`artifacts/evaluation/validation-bids-v1/`; choose a new `--output-dir` to rerun.
+Unrounded and cent-rounded predictions are recorded separately. Market quotes
+remain unavailable, and test files are not read. Aggregate/slice MAE is a later task.
+See `requirements/evaluation/bid-comparisons.md` for comparison semantics.
+
+## Validation MAE and slices
+
+```sh
+uv run python -m sfi_model.evaluation.validation_metrics
+```
+
+Saves `metrics.json`, `overall.csv`, and `slices.csv` in
+`artifacts/evaluation/validation-metrics-v1/`. Reports RPM and total-dollar MAE,
+coverage, bias, and sample counts overall and by lane, training-derived distance
+and weight bands, and retrospective shipment season. Sparse slices are flagged;
+unavailable predictions and unobserved seasons have no fabricated score.
+The reserved test partition is not evaluated. See
+`requirements/evaluation/validation-mae.md` for the current results and limitations.
+
+## Selected baseline fallback
+
+```sh
+uv run python -m sfi_model.baselines.fallback
+```
+
+Records the validation metrics and selects lane median with global fallback in
+`artifacts/baselines/fallback-policy-v1.json`. The selected policy has complete
+validation coverage and lower RPM/dollar MAE than global alone. The baseline
+artifact is pinned by hash; missing or changed artifacts route to review.
+
+`recommend_fallback` from `sfi_model.baselines.fallback` provides advisory RPM and
+total-dollar candidates for explicit model-failure/unreliable triggers when the
+effective policy enables baseline fallback. Inputs must be supported; all
+profitability/fleet checks and submission authorization remain separate. See
+`requirements/baselines/selected-fallback.md` for the invocation and recorded evidence.
 
 ## Training
 
