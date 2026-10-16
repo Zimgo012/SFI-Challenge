@@ -2,12 +2,12 @@ import type { LiveOverviewState } from '../api/overview'
 import type { LoadView } from '../api/orders'
 import { getLoadOpportunities } from './load-board'
 
-function firstByDate(loads: LoadView[], field: 'expires_at' | 'delivery_at' | 'bid_decision_at') {
+function firstByDate(loads: LoadView[], field: 'expires_at' | 'board_created_at', direction: 'asc' | 'desc' = 'asc') {
   return [...loads].sort((left, right) => {
     const a = left[field] ? Date.parse(left[field]) : NaN
     const b = right[field] ? Date.parse(right[field]) : NaN
     if (Number.isFinite(a) !== Number.isFinite(b)) return Number.isFinite(a) ? -1 : 1
-    return (Number.isFinite(a) && Number.isFinite(b) ? a - b : 0) || left.external_id.localeCompare(right.external_id)
+    return (Number.isFinite(a) && Number.isFinite(b) ? (direction === 'desc' ? b - a : a - b) : 0) || left.external_id.localeCompare(right.external_id)
   }).slice(0, 5)
 }
 
@@ -28,8 +28,8 @@ export function dashboardSummary({ overview, loads, terminals }: LiveOverviewSta
     assignedUnits: sum('assigned_units'),
     attentionCount: terminals?.filter((terminal) => terminal.status === 'attention' || terminal.consistent === false).length ?? null,
     opportunities: firstByDate(opportunities, 'expires_at'),
-    pendingBids: firstByDate(pendingPreview, 'bid_decision_at'),
-    shipments: firstByDate(active, 'delivery_at'),
+    pendingBids: firstByDate(pendingPreview, 'board_created_at', 'desc'),
+    shipments: firstByDate(active, 'board_created_at', 'desc'),
   }
 }
 

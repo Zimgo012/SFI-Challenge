@@ -16,6 +16,7 @@ Open the local URL printed by Vite. `/` redirects to `/dashboard`.
 | Page | Route | Purpose |
 | --- | --- | --- |
 | Dashboard | `/dashboard` | Summary of bid opportunities, fleet capacity, pending bids, and active shipments. |
+| Analytics | `/analytics` | Empty workspace for upcoming analytics and reporting. |
 | Load Board | `/loads` | Live cards for open orders to bid on. |
 | Bid Logs | `/bids` | Review and sort non-open bid orders, with details in a centered dialog. |
 | Terminals | `/terminals` | Compare current capacity across hubs. |
@@ -91,11 +92,12 @@ heartbeat even when there is no order or terminal change.
 
 Dashboard combines `/api/overview` totals and profit estimates with full order
 and terminal WebSocket snapshots. It shows open opportunities, available trucks,
-pending bids, active shipments, capacity by hub, and recent activity. Preview
+pending bids, active shipments, and capacity by hub. Preview
 lists show up to five records; summary counts use full live data rather than
 preview lengths. Active shipments exclude completed bookings. Unknown capacity
 stays unknown, and confirmed estimates remain separate from conditional pending
-bid profit. Recent activity opens the existing details dialog. Stream changes
+bid profit. Active shipment and pending bid previews show at most five records,
+ordered by order creation time, newest first. Stream changes
 refresh overview metadata, with a 30-second REST fallback and a manual Refresh
 button. Connection failures retain previous data; leaving the page closes both
 streams, aborts reads, and cancels refresh timers.

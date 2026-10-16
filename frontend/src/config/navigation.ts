@@ -1,5 +1,6 @@
 export const navigation = [
   { label: 'Dashboard', path: '/dashboard' },
+  { label: 'Analytics', path: '/analytics' },
   { label: 'Load Board', path: '/loads' },
   { label: 'Bid Logs', path: '/bids' },
   { label: 'Terminals', path: '/terminals' },

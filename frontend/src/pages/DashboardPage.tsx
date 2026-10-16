@@ -3,13 +3,9 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { subscribeOverview } from '../api/overview'
 import type { LiveOverviewState } from '../api/overview'
-import type { ActivityView } from '../api/activity'
 import PageSection from '../components/PageSection'
-import ActivityDialog from '../components/ActivityDialog'
 import { dashboardRoute, dashboardSummary } from '../utils/dashboard'
-import { amount, label, quantity, timestamp } from '../utils/load-format'
-import { activityColor } from '../utils/activity'
-import { readableMessage } from '../utils/api-feedback'
+import { amount, timestamp } from '../utils/load-format'
 
 const initialState: LiveOverviewState = {
   overview: null, loads: null, terminals: null, system: null,
@@ -17,7 +13,7 @@ const initialState: LiveOverviewState = {
 }
 
 function Panel({ title, to, caption, children }: { title: string; to: string; caption: string; children: ReactNode }) {
-  return <section className="overflow-hidden rounded-xl border border-base-300 bg-base-100">
+  return <section className="min-w-0 overflow-hidden rounded-xl border border-base-300 bg-base-100">
     <header className="flex items-start justify-between gap-3 border-b border-base-300 p-5">
       <div><h2 className="font-semibold">{title}</h2><p className="mt-1 text-xs text-base-content/60">{caption}</p></div>
       <Link to={to} className="link link-primary shrink-0 text-xs no-underline hover:underline" aria-label={`View all ${title.toLowerCase()}`}>View all →</Link>
@@ -36,7 +32,6 @@ function count(value: number | null) {
 
 export default function DashboardPage() {
   const [state, setState] = useState(initialState)
-  const [selectedEvent, setSelectedEvent] = useState<ActivityView | null>(null)
   const refreshRef = useRef<(() => void) | null>(null)
   useEffect(() => {
     const subscription = subscribeOverview(setState)
@@ -49,7 +44,6 @@ export default function DashboardPage() {
   const boardDelayed = !!system && ['disconnected', 'reconnecting', 'connecting'].includes(system.connection_status)
   const live = connection === 'live' && !error && !boardDelayed
   const profit = overview?.profit
-  const activity = overview?.activity ?? []
   const capacity = [...(terminals ?? [])].sort((left, right) =>
     Number(right.status === 'attention' || right.consistent === false) - Number(left.status === 'attention' || left.consistent === false)
     || left.code.localeCompare(right.code),
@@ -87,15 +81,22 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <div className="grid items-start gap-5 xl:grid-cols-[1.2fr_1fr]">
-        <Panel title="Open opportunities" to="/loads" caption="Up to five offers · Soonest expiry first">
-          {summary.opportunities.length ? <ul className="divide-y divide-base-200">{summary.opportunities.map((load) => <li key={load.external_id} className="space-y-2 p-5">
-            <div className="flex items-center justify-between gap-3"><span className="truncate text-xs text-base-content/55" title={load.external_id}>{load.external_id}</span><span className="badge badge-sm badge-soft badge-primary shrink-0">{load.order_type === 'fixed_rate' ? 'Fixed rate' : 'Open bid'}</span></div>
-            <p className="text-sm font-medium">{dashboardRoute(load)}</p>
-            <div className="flex flex-wrap justify-between gap-2 text-xs"><span className="text-base-content/60">{quantity(load.distance_miles, 'mi')} · {quantity(load.weight_lbs, 'lbs')}</span><span>{load.order_type === 'fixed_rate' ? `Offered ${amount(load.offered_rate)}` : `Board cost ${amount(load.estimated_total_cost)}`}</span></div>
-            <p className="text-xs text-base-content/55">Expires {timestamp(load.expires_at)}</p>
-          </li>)}</ul> : <NoData loading={loading}>No open opportunities. New orders will appear automatically.</NoData>}
-        </Panel>
+      <Panel title="Open opportunities" to="/loads" caption="Up to five offers · Soonest expiry first">
+        {summary.opportunities.length ? <ul aria-label="Open opportunity cards" tabIndex={0} className="flex snap-x gap-3 overflow-x-auto overscroll-x-contain bg-base-200/30 p-4 focus-visible:outline-2 focus-visible:outline-primary">{summary.opportunities.map((load) => <li key={load.external_id} className="flex w-56 shrink-0 snap-start flex-col gap-3 rounded-lg border border-base-300 bg-base-100 p-3.5">
+          <p className="truncate text-xs font-medium text-base-content/60" title={load.external_id}>{load.external_id}</p>
+          <div>
+            <p className="flex items-center justify-between gap-2 text-sm font-bold"><span className="truncate">{load.origin_terminal_code ?? 'Unknown'}</span><span aria-hidden="true" className="text-primary">→</span><span className="truncate">{load.destination_terminal_code ?? 'Unknown'}</span></p>
+            <p className="mt-1 truncate text-[11px] text-base-content/55" title={dashboardRoute(load)}>{dashboardRoute(load)}</p>
+          </div>
+          <dl className="text-[11px]"><dt className="text-base-content/55">Expires</dt><dd className="mt-0.5">{timestamp(load.expires_at)}</dd></dl>
+          <div className="mt-auto flex items-end justify-between gap-2 border-t border-base-200 pt-2">
+            <span className={`badge badge-sm badge-soft shrink-0 ${load.order_type === 'fixed_rate' ? 'badge-success' : 'badge-info'}`}>{load.order_type === 'fixed_rate' ? 'Fixed rate' : 'Open bid'}</span>
+            <div className="min-w-0 text-right"><p className="text-[10px] text-base-content/55">{load.order_type === 'fixed_rate' ? 'Offer' : 'Est. cost'}</p><p className="break-words text-sm font-bold tabular-nums text-primary">{amount(load.order_type === 'fixed_rate' ? load.offered_rate : load.estimated_total_cost)}</p></div>
+          </div>
+        </li>)}</ul> : <NoData loading={loading}>No open opportunities. New orders will appear automatically.</NoData>}
+      </Panel>
+
+      <div className="grid items-start gap-5 xl:grid-cols-3">
         <Panel title="Terminal capacity" to="/terminals" caption={summary.attentionCount ? `${summary.attentionCount} hubs need attention · Current roster counts` : 'Current available trucks by hub'}>
           {capacity.length ? <ul className="max-h-[30rem] divide-y divide-base-200 overflow-y-auto">{capacity.map((terminal) => {
             const needsAttention = terminal.status === 'attention' || terminal.consistent === false
@@ -106,27 +107,19 @@ export default function DashboardPage() {
             </li>
           })}</ul> : <NoData loading={terminals === null}>No terminal capacity has been synced yet.</NoData>}
         </Panel>
-        <Panel title="Active shipments" to="/shipments" caption="Up to five confirmed shipments · Soonest delivery first">
+        <Panel title="Active shipments" to="/shipments" caption="Latest five active shipments · Newest orders first">
           {summary.shipments.length ? <ul className="divide-y divide-base-200">{summary.shipments.map((shipment) => {
             const overdue = shipment.status === 'in_transit' && !!system?.sim_time_utc && !!shipment.delivery_at && Date.parse(shipment.delivery_at) < Date.parse(system.sim_time_utc)
-            return <li key={shipment.external_id} className="space-y-2 p-5"><div className="flex items-center justify-between gap-3"><span className="truncate text-xs text-base-content/55" title={shipment.external_id}>{shipment.external_id}</span><span className={`badge badge-sm badge-soft ${overdue ? 'badge-warning' : shipment.status === 'in_transit' ? 'badge-info' : 'badge-success'}`}>{overdue ? 'Delivery overdue' : shipment.status === 'in_transit' ? 'In transit' : 'Booked'}</span></div><p className="text-sm font-medium">{dashboardRoute(shipment)}</p><p className="text-xs text-base-content/60">Delivery {timestamp(shipment.delivery_at)}</p><p className="text-xs text-base-content/55">Assigned truck: {shipment.board_assigned_unit_id ?? 'Not yet synced'}</p></li>
+            return <li key={shipment.external_id} className="space-y-1.5 p-4"><div className="flex items-center justify-between gap-3"><span className="truncate text-xs text-base-content/55" title={shipment.external_id}>{shipment.external_id}</span><span className={`badge badge-sm badge-soft ${overdue ? 'badge-warning' : shipment.status === 'in_transit' ? 'badge-info' : 'badge-success'}`}>{overdue ? 'Delivery overdue' : shipment.status === 'in_transit' ? 'In transit' : 'Booked'}</span></div><p className="truncate text-sm font-medium" title={dashboardRoute(shipment)}>{shipment.origin_terminal_code ?? shipment.origin_city ?? 'Unknown'} → {shipment.destination_terminal_code ?? shipment.destination_city ?? 'Unknown'}</p><p className="text-xs text-base-content/60">Delivery {timestamp(shipment.delivery_at)}</p><p className="text-xs text-base-content/55">Assigned truck: {shipment.board_assigned_unit_id ?? 'Not yet synced'}</p></li>
           })}</ul> : <NoData loading={loading}>No active shipments. Accepted bookings will appear here.</NoData>}
         </Panel>
-        <Panel title="Pending bids" to="/bids" caption="Up to five pending bids · Soonest decision first">
+        <Panel title="Pending bids" to="/bids" caption="Latest five pending bids · Newest orders first">
           {summary.pendingBids.length ? <ul className="divide-y divide-base-200">{summary.pendingBids.map((order) => {
             const bid = overview?.bids.find((item) => item.order.external_id === order.external_id)
-            return <li key={order.external_id} className="space-y-2 p-5"><div className="flex items-center justify-between gap-3"><span className="truncate text-xs text-base-content/55" title={order.external_id}>{order.external_id}</span><span className="badge badge-sm badge-soft badge-warning">Awaiting result</span></div><p className="text-sm font-medium">{dashboardRoute(order)}</p><div className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="text-base-content/60">Decision {timestamp(order.bid_decision_at)}</span><span className="font-semibold">{bid?.bid_rate ? `Bid ${amount(bid.bid_rate)}` : 'Bid amount not loaded'}</span></div></li>
+            return <li key={order.external_id} className="space-y-1.5 p-4"><div className="flex items-center justify-between gap-3"><span className="truncate text-xs text-base-content/55" title={order.external_id}>{order.external_id}</span><span className="badge badge-sm badge-soft badge-warning">Awaiting result</span></div><p className="truncate text-sm font-medium" title={dashboardRoute(order)}>{order.origin_terminal_code ?? order.origin_city ?? 'Unknown'} → {order.destination_terminal_code ?? order.destination_city ?? 'Unknown'}</p><div className="flex flex-wrap items-center justify-between gap-2 text-xs"><span className="text-base-content/60">Decision {timestamp(order.bid_decision_at)}</span><span className="font-semibold">{bid?.bid_rate ? `Bid ${amount(bid.bid_rate)}` : 'Bid amount not loaded'}</span></div></li>
           })}</ul> : <NoData loading={loading}>No pending bids. Submitted bids will appear here.</NoData>}
         </Panel>
       </div>
-      <Panel title="Recent activity" to="/activity" caption="The five latest decisions, results, and sync events">
-        {activity.length ? <ul className="divide-y divide-base-200">{activity.map((event) => <li key={event.event_id}><button type="button" className="flex w-full flex-wrap items-start gap-3 p-5 text-left transition-colors hover:bg-base-200/50" onClick={() => setSelectedEvent(event)} aria-haspopup="dialog">
-          <span className={`badge badge-sm badge-soft shrink-0 ${activityColor(event.event_type)}`}>{label(event.event_type.replaceAll('.', ' '))}</span>
-          <div className="min-w-0 flex-1"><p className="line-clamp-2 break-words text-sm">{readableMessage(event.message)}</p><p className="mt-1 break-all text-xs text-base-content/50">{event.external_id ?? 'System event'}</p></div>
-          <time dateTime={event.occurred_at_wall} className="text-xs text-base-content/55">{timestamp(event.occurred_at_wall)}</time>
-        </button></li>)}</ul> : <NoData loading={overview === null}>No activity yet. Updates will appear as operations begin.</NoData>}
-      </Panel>
-      {selectedEvent && <ActivityDialog event={activity.find((event) => event.event_id === selectedEvent.event_id) ?? selectedEvent} onClose={() => setSelectedEvent(null)} />}
     </PageSection>
   )
 }

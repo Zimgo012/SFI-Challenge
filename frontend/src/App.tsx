@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router'
 import AppLayout from './layouts/AppLayout'
 import DashboardPage from './pages/DashboardPage'
+import AnalyticsPage from './pages/AnalyticsPage'
 import LoadBoardPage from './pages/LoadBoardPage'
 import BidLogsPage from './pages/BidLogsPage'
 import TerminalsPage from './pages/TerminalsPage'
@@ -16,6 +17,7 @@ export default function App() {
       <Route element={<AppLayout />}>
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="loads" element={<LoadBoardPage />} />
         <Route path="bids" element={<BidLogsPage />} />
         <Route path="terminals" element={<TerminalsPage />} />
