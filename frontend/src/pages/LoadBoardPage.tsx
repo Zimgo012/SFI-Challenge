@@ -173,9 +173,8 @@ export default function LoadBoardPage() {
                   load={load}
                   disabled={!canSubmit(load)}
                   pending={decisions[load.external_id] === 'submitting'}
-                  onAccept={() => load.order_type === 'fixed_rate' ? void decide(load, 'accept') : setSelected({ load, bid: true })}
+                  onAccept={() => setSelected({ load, bid: true })}
                   onDecline={() => void decide(load, 'decline')}
-                  onMoreInformation={() => setSelected({ load, bid: false })}
                 />
               ))}
             </div>

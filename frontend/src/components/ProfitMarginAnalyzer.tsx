@@ -7,7 +7,7 @@ import { bidForMargin, marginForBid, normalizeBid, validMargin } from '../utils/
 import { apiFeedback, readableMessage } from '../utils/api-feedback'
 
 type Preview = { key: string; report?: OrderRecommendations; error?: string }
-type Props = { load: LoadView; canSubmit: boolean; pending: boolean; onSubmitBid: (rate: string) => Promise<void>; orderInformation: ReactNode; initialTab?: 'economics' | 'order' }
+type Props = { load: LoadView; canSubmit: boolean; pending: boolean; onSubmitBid: (rate: string) => Promise<void>; onAccept: () => Promise<void>; orderInformation: ReactNode; initialTab?: 'economics' | 'order' }
 
 const checkNames: Record<string, string> = {
   offer_open_unexpired: 'Offer open & unexpired',
@@ -32,7 +32,7 @@ async function preview(loadId: string, bid: string | null, signal: AbortSignal):
   return body
 }
 
-export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmitBid, orderInformation, initialTab = 'economics' }: Props) {
+export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmitBid, onAccept, orderInformation, initialTab = 'economics' }: Props) {
   const [tab, setTab] = useState<'economics' | 'order'>(initialTab)
   const [margin, setMargin] = useState('15')
   const [manualBid, setManualBid] = useState('')
@@ -41,19 +41,20 @@ export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmi
   const [base, setBase] = useState<Preview | null>(null)
   const [quote, setQuote] = useState<Preview | null>(null)
   const loadId = load.external_id
-  const baseKey = JSON.stringify([loadId, load.last_synced_at, load.status, retry])
+  const isFixedRate = load.order_type === 'fixed_rate'
+  const baseKey = JSON.stringify([loadId, load.order_type, load.last_synced_at, load.status, load.offered_rate, load.estimated_cost, load.cost_per_mile, load.pickup_at, load.delivery_at, load.expires_at, retry])
   const baseReport = base?.key === baseKey ? base.report : undefined
   const cost = baseReport?.selected?.economics.total_cost ?? null
-  const proposedBid = mode === 'margin' ? bidForMargin(cost, margin) : normalizeBid(manualBid)
+  const proposedBid = isFixedRate ? null : mode === 'margin' ? bidForMargin(cost, margin) : normalizeBid(manualBid)
   const quoteKey = JSON.stringify([baseKey, proposedBid])
   const currentQuote = quote?.key === quoteKey ? quote : null
-  const report = currentQuote?.report
+  const report = isFixedRate ? baseReport : currentQuote?.report
   const selected = report ? report.selected : baseReport?.selected
   const economics = selected?.economics
   const displayedMargin = mode === 'manual' ? marginForBid(report ? economics?.total_cost ?? null : cost, manualBid) ?? '' : margin
   const sliderMargin = Math.min(99.99, Math.max(0, Number(displayedMargin) || 0))
   const evaluation = report?.dispatch_evaluation
-  const ready = !!report && report.entered_bid_rate !== null && normalizeBid(report.entered_bid_rate) === proposedBid
+  const ready = !!report && (isFixedRate || (report.entered_bid_rate !== null && normalizeBid(report.entered_bid_rate) === proposedBid))
     && !!report.selected?.booking_ready && evaluation?.eligible === true
   const error = (base?.key === baseKey ? base.error : undefined) ?? currentQuote?.error
   const loading = !error && (!baseReport || (!!proposedBid && !report))
@@ -68,7 +69,7 @@ export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmi
   }, [loadId, baseKey])
 
   useEffect(() => {
-    if (!baseReport || !proposedBid) return
+    if (isFixedRate || !baseReport || !proposedBid) return
     const controller = new AbortController()
     const timer = setTimeout(() => {
       void preview(loadId, proposedBid, controller.signal).then(
@@ -77,19 +78,27 @@ export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmi
       )
     }, 350)
     return () => { clearTimeout(timer); controller.abort() }
-  }, [loadId, baseReport, proposedBid, quoteKey])
+  }, [loadId, baseReport, proposedBid, quoteKey, isFixedRate])
 
   return (
     <form className="flex min-h-0 flex-1 flex-col" onSubmit={(event) => {
       event.preventDefault()
-      if (canSubmit && !pending && ready && proposedBid) void onSubmitBid(proposedBid)
+      if (!canSubmit || pending || !ready) return
+      if (isFixedRate) void onAccept()
+      else if (proposedBid) void onSubmitBid(proposedBid)
     }}>
       <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[1fr_1.05fr] lg:overflow-hidden">
-      <section aria-label="Adjust your bid" className="space-y-3 bg-primary/5 p-4 lg:overflow-y-auto lg:p-5">
+      <section aria-label={isFixedRate ? 'Review fixed-rate offer' : 'Adjust your bid'} className="space-y-3 bg-primary/5 p-4 lg:overflow-y-auto lg:p-5">
       <div>
-        <h3 className="text-lg font-bold text-primary">Set your profit margin</h3>
-        <p className="mt-1 text-xs text-base-content/65">Adjust either value to see your expected profit.</p>
+        <span className={`badge badge-sm badge-soft mb-2 ${isFixedRate ? 'badge-success' : 'badge-info'}`}>{isFixedRate ? 'Fixed rate' : 'Open bid'}</span>
+        <h3 className="text-lg font-bold text-primary">{isFixedRate ? 'Fixed-rate profit analysis' : 'Set your profit margin'}</h3>
+        <p className="mt-1 text-xs text-base-content/65">{isFixedRate ? 'Review the offered payout, unit-specific costs, and eligibility before accepting.' : 'Adjust either value to see your expected profit.'}</p>
       </div>
+      {isFixedRate ? <div className="rounded-xl border border-primary/20 bg-base-100 p-4">
+        <p className="text-xs text-base-content/60">Offered rate · USD</p>
+        <p className="mt-2 text-3xl font-bold tabular-nums text-primary">{amount(load.offered_rate)}</p>
+        <p className="mt-2 text-xs text-base-content/55">Fixed payout from the board.</p>
+      </div> : <>
       <div>
         <label htmlFor="profit-margin" className="mb-2 flex items-center justify-between text-sm font-medium">Target profit margin <span>% of revenue</span></label>
         <input id="profit-margin" type="number" min={mode === 'manual' ? Math.min(0, Number(displayedMargin)) : 0} max={mode === 'manual' ? 100 : 99.99} step="0.01" className="input input-sm input-bordered w-full" value={displayedMargin} disabled={pending} onChange={(event) => { setMargin(event.target.value); setMode('margin') }} aria-invalid={mode === 'margin' && !validMargin(margin)} />
@@ -106,6 +115,7 @@ export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmi
         {baseReport && mode === 'margin' && !proposedBid && <p className="mt-2 text-xs text-warning">A bid cannot be calculated from the available cost and margin. You can enter a bid to request a preview.</p>}
       </div>
 
+      </>}
       <dl className="grid grid-cols-3 gap-2 rounded-xl border border-primary/15 bg-base-100 p-3">
         {[
           ['Total cost', amount(economics?.total_cost ?? null)],
@@ -113,13 +123,13 @@ export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmi
           ['Actual margin', report ? quantity(economics?.margin_pct ?? null, '%') : '—'],
         ].map(([name, value]) => <div key={name}><dt className="text-xs text-base-content/60">{name}</dt><dd className={`mt-2 break-words text-base font-bold tabular-nums ${name !== 'Total cost' && report && Number(economics?.gross_profit) < 0 ? 'text-error' : 'text-primary'}`}>{value}</dd></div>)}
       </dl>
-      {economics && <p className="flex justify-between gap-2 text-xs text-base-content/65"><span>Minimum profitable bid</span><strong className="text-base-content">{amount(economics.minimum_profitable_bid)}</strong></p>}
+      {economics && <p className="flex justify-between gap-2 text-xs text-base-content/65"><span>{isFixedRate ? 'Minimum profitable rate' : 'Minimum profitable bid'}</span><strong className="text-base-content">{amount(economics.minimum_profitable_bid)}</strong></p>}
       {loading && <p role="status" className="flex items-center gap-2 text-sm text-base-content/65"><span className="loading loading-spinner loading-xs" />Evaluating current costs and eligibility…</p>}
       {error && <p role="alert" className="text-sm text-error">{error}</p>}
-      {(report ?? baseReport) && !selected && <p className="text-sm text-warning">{(report ?? baseReport)?.dispatch_evaluation?.primary_rejection?.message ?? 'No recommended unit is available for this evaluation. A bid cannot be submitted until the dispatch checks pass.'}</p>}
-        <section aria-label="Bid eligibility" className="space-y-2 rounded-lg border border-base-300 bg-base-100 p-3">
+      {(report ?? baseReport) && !selected && <p className="text-sm text-warning">{(report ?? baseReport)?.dispatch_evaluation?.primary_rejection?.message ?? 'No recommended unit is available for this evaluation. Dispatch checks must pass before continuing.'}</p>}
+        <section aria-label={isFixedRate ? 'Offer eligibility' : 'Bid eligibility'} className="space-y-2 rounded-lg border border-base-300 bg-base-100 p-3">
       {evaluation && <div className="space-y-2 text-[11px]">
-        <p className={ready ? 'font-semibold text-success' : 'font-semibold text-warning'}>{ready ? 'Eligible for bid submission' : 'Eligibility checks'}</p>
+        <p className={ready ? 'font-semibold text-success' : 'font-semibold text-warning'}>{ready ? isFixedRate ? 'Eligible to accept' : 'Eligible for bid submission' : 'Eligibility checks'}</p>
         {!ready && evaluation.primary_rejection?.message && <p className="text-warning">{evaluation.primary_rejection.message}</p>}
         <ul className="grid grid-cols-2 gap-x-3 gap-y-1.5">
           {Object.entries(evaluation.checks).map(([check, passed]) => {
@@ -138,17 +148,16 @@ export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmi
           <div className="mt-2 space-y-2">
         {!evaluation.policy.enforce_margin && <p className="text-base-content/65">The backend’s profit-margin guard is disabled. Profit targets are informational.</p>}
         {evaluation.rejection_details.map((reason, index) => <p key={index} className="text-warning">{reason.message} {reason.suggested_action}</p>)}
-        {!!evaluation.unit_rejections?.length && <div className="space-y-2"><p className="font-medium">Per-truck reasons</p>{evaluation.unit_rejections.map((unit) => <p key={unit.unit_id} className="text-warning">Truck {unit.unit_number}: {unit.primary_rejection.message} {unit.primary_rejection.suggested_action}</p>)}</div>}
         {evaluation.capacity_warnings.length > 0 && <p className="text-warning">The evaluation includes {evaluation.capacity_warnings.length} capacity warning(s). Review available fleet capacity.</p>}
       {(report ?? baseReport)?.rejection_reasons.map((reason, index) => <p key={index} className="text-xs text-warning">{readableMessage(reason)}</p>)}
       {(report ?? baseReport) && <p className="text-xs text-base-content/50">Evaluated {timestamp((report ?? baseReport)!.evaluated_at_sim)} (simulation time). The board assigns the final unit; costs and eligibility are checked again on submission.</p>}
           </div>
         </details>
       </div>}
-      {!evaluation && <p className="text-[11px] text-base-content/60">{loading ? 'Checking the entered bid…' : 'Enter a valid bid to review dispatch eligibility.'}</p>}
+      {!evaluation && <p className="text-[11px] text-base-content/60">{loading ? 'Checking eligibility…' : isFixedRate ? 'Refresh analysis to review this offer’s eligibility.' : 'Enter a valid bid to review dispatch eligibility.'}</p>}
       </section>
       </section>
-      <section aria-label="Bid review" className="flex min-h-64 flex-col border-t border-base-300 lg:min-h-0 lg:border-t-0 lg:border-l">
+      <section aria-label="Order review" className="flex min-h-64 flex-col border-t border-base-300 lg:min-h-0 lg:border-t-0 lg:border-l">
         <div className="flex shrink-0 gap-1 border-b border-base-300 px-4 pt-3" aria-label="Review sections">
           {([['economics', 'Economics'], ['order', 'Order details']] as const).map(([value, name]) => <button key={value} type="button" aria-pressed={tab === value} aria-controls={`bid-review-${value}`} className={`min-w-0 flex-1 border-b-2 px-2 py-3 text-xs font-medium ${tab === value ? 'border-primary text-primary' : 'border-transparent text-base-content/60 hover:text-base-content'}`} onClick={() => setTab(value)}>{name}</button>)}
         </div>
@@ -162,14 +171,14 @@ export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmi
             ['Loaded cost', amount(economics.loaded_cost)],
             ['Deadhead cost', amount(economics.projected_deadhead_cost)],
             ['Total cost', amount(economics.total_cost)],
-            ['Bid revenue', report ? amount(economics.payout) : '—'],
+            [isFixedRate ? 'Offered revenue' : 'Bid revenue', report ? amount(economics.payout) : '—'],
             ['Gross profit', report ? amount(economics.gross_profit) : '—'],
             ['Profit margin', report ? quantity(economics.margin_pct, '%') : '—'],
           ].map(([name, value]) => <div key={name}><dt className="text-xs text-base-content/60">{name}</dt><dd className={`mt-1 font-semibold tabular-nums ${report && Number(economics.gross_profit) < 0 && ['Gross profit', 'Profit margin'].includes(name) ? 'text-error' : ''}`}>{value}</dd></div>)}
         </dl>
-        <div className="flex justify-between gap-3 text-sm"><span>Minimum profitable bid</span><strong>{amount(economics.minimum_profitable_bid)}</strong></div>
+        <div className="flex justify-between gap-3 text-sm"><span>{isFixedRate ? 'Minimum profitable rate' : 'Minimum profitable bid'}</span><strong>{amount(economics.minimum_profitable_bid)}</strong></div>
         <p className="text-xs text-base-content/60">{economics.bid_floor.explanation}</p>
-        {report && proposedBid && economics.minimum_profitable_bid !== null && Number(proposedBid) < Number(economics.minimum_profitable_bid) && <p className="text-xs text-warning">Your bid is below the minimum profitable bid for this unit.</p>}
+        {report && (isFixedRate ? economics.payout !== null : proposedBid !== null) && economics.minimum_profitable_bid !== null && Number(isFixedRate ? economics.payout : proposedBid) < Number(economics.minimum_profitable_bid) && <p className="text-xs text-warning">{isFixedRate ? 'This offer is below the minimum profitable rate for this unit.' : 'Your bid is below the minimum profitable bid for this unit.'}</p>}
         <section className="rounded-lg border border-base-300 bg-base-100 p-4 text-xs">
           <h4 className="text-sm font-medium">Economics breakdown</h4>
           <div className="mt-4 space-y-4">
@@ -203,11 +212,11 @@ export default function ProfitMarginAnalyzer({ load, canSubmit, pending, onSubmi
       </div>
       <footer className="shrink-0 space-y-3 border-t border-base-300 bg-base-100 px-5 py-4 lg:px-6">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p role="status" className={`text-xs font-medium ${ready && canSubmit ? 'text-success' : 'text-base-content/65'}`}>{pending ? 'Submitting your bid…' : !canSubmit ? 'Order unavailable for submission' : error ? 'Profit preview unavailable' : loading ? 'Updating your profit preview…' : ready ? 'Ready to submit your bid' : 'Review eligibility before submitting'}</p>
+          <p role="status" className={`text-xs font-medium ${ready && canSubmit ? 'text-success' : 'text-base-content/65'}`}>{pending ? isFixedRate ? 'Accepting this offer…' : 'Submitting your bid…' : !canSubmit ? 'Order unavailable for submission' : error ? 'Profit preview unavailable' : loading ? 'Updating your profit preview…' : ready ? isFixedRate ? 'Ready to accept this offer' : 'Ready to submit your bid' : 'Review eligibility before continuing'}</p>
           <button type="button" className="btn btn-ghost btn-xs" disabled={pending || loading} onClick={() => setRetry((value) => value + 1)}>Refresh analysis</button>
         </div>
-        <button type="submit" className="btn btn-primary w-full" disabled={!canSubmit || pending || !ready || !proposedBid}>{pending ? 'Submitting bid…' : proposedBid ? `Submit bid · ${amount(proposedBid)}` : 'Submit bid'}</button>
-        <p className="text-center text-xs text-base-content/50">A booking is confirmed only if your bid wins.</p>
+        <button type="submit" className="btn btn-primary w-full" disabled={!canSubmit || pending || !ready || (!isFixedRate && !proposedBid)}>{pending ? isFixedRate ? 'Accepting…' : 'Submitting bid…' : isFixedRate ? `Accept offer · ${amount(load.offered_rate)}` : proposedBid ? `Submit bid · ${amount(proposedBid)}` : 'Submit bid'}</button>
+        <p className="text-center text-xs text-base-content/50">{isFixedRate ? 'Availability and eligibility are checked again when you accept.' : 'A booking is confirmed only if your bid wins.'}</p>
       </footer>
     </form>
   )

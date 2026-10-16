@@ -122,9 +122,13 @@ as they expire or change status.
 Snapshots, updates, and heartbeats replace the complete result set, including
 removing orders that no longer match. Compact cards show pickup/delivery
 locations, distance, cargo weight, pickup time, delivery time, and offer expiry.
-Accept/decline controls use a dating-card layout. For open-bid orders, Accept
-opens a profit analyzer; only submitting its form sends a bid. Every open-bid
-card also has an Analyze profit link.
+Cards have labeled View / Accept and Decline buttons. View / Accept opens the profit analyzer
+in a right-side panel for both order types, including order details in a tab.
+Fixed-rate analysis previews the offered payout,
+selected-unit costs, profit margin, and eligibility without editable pricing
+controls or a slider. Accept offer inside the panel submits the acceptance only
+after an eligible current preview. Open-bid analysis retains its linked margin
+and bid inputs; only submitting that form sends a bid.
 The analyzer uses a wide panel with margin controls and key profit figures beside
 Economics and Order details tabs. Compact eligibility checks appear below the margin controls. Its submit button stays visible
 at the bottom; smaller screens stack the sections above that footer.
@@ -134,10 +138,9 @@ override this target. Read-only cost previews show loaded/deadhead costs, gross
 profit, actual margin, minimum profitable bid, and dispatch eligibility. Unknown
 costs stay unknown. Changing the bid or receiving a new order snapshot invalidates
 the previous preview; submission requires a matching eligible evaluation. Bid
-amounts accept up to 16 whole digits and two decimal places. For fixed-rate offers,
-Accept submits the acceptance directly. Decline submits the
+amounts accept up to 16 whole digits and two decimal places. Decline submits the
 documented decline action. Expired orders and disconnected streams disable
-submissions. More information opens a sliding right-side dialog with pricing,
+submissions. Accept opens a sliding right-side dialog with pricing,
 costs, assignment, location, and sync information, keyboard focus trapping,
 Escape/backdrop dismissal, and reduced-motion support. Countdown
 values are labeled as simulated seconds at the last update. Disconnects retain
