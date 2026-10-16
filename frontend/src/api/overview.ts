@@ -104,6 +104,7 @@ export function subscribeOverview(onChange: (state: LiveOverviewState) => void) 
   const poll = setInterval(() => { void refresh() }, 30_000)
   const onSimulationChange = () => { void refresh() }
   window.addEventListener('simulation-speed-updated', onSimulationChange)
+  window.addEventListener('history-cleaned', onSimulationChange)
   return {
     refresh: () => { void refresh() },
     unsubscribe: () => {
@@ -112,6 +113,7 @@ export function subscribeOverview(onChange: (state: LiveOverviewState) => void) 
       clearTimeout(refreshTimer)
       clearInterval(poll)
       window.removeEventListener('simulation-speed-updated', onSimulationChange)
+      window.removeEventListener('history-cleaned', onSimulationChange)
       closeLoads()
       closeTerminals()
     },

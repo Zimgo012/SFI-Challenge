@@ -4,7 +4,7 @@ export type ShipmentStatus = 'all' | 'accepted' | 'in_transit' | 'completed'
 export type ShipmentSort = 'created' | 'pickup' | 'delivery' | 'synced'
 
 export function confirmedShipments(loads: LoadView[]) {
-  return loads.filter((load) => ['accepted', 'in_transit', 'completed'].includes(load.status) && !load.board_missing_at)
+  return loads.filter((load) => ['accepted', 'in_transit', 'completed'].includes(load.status) && !load.board_missing_at && !load.shipment_history_deleted_at)
 }
 
 export function filterShipments(shipments: LoadView[], search: string, status: ShipmentStatus) {

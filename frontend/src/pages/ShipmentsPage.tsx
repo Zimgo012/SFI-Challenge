@@ -3,6 +3,7 @@ import { subscribeShipments } from '../api/shipments'
 import type { LiveShipmentsState, LoadView } from '../api/shipments'
 import EmptyPanel from '../components/EmptyPanel'
 import PageSection from '../components/PageSection'
+import HistoryCleanup from '../components/HistoryCleanup'
 import ShipmentDialog from '../components/ShipmentDialog'
 import { amount, label, timestamp } from '../utils/load-format'
 import { filterShipments, isDeliveryOverdue, sortShipments } from '../utils/shipments'
@@ -20,6 +21,7 @@ export default function ShipmentsPage() {
   const [sort, setSort] = useState<ShipmentSort>('created')
   const [direction, setDirection] = useState<'asc' | 'desc'>('desc')
   const [page, setPage] = useState(1)
+  const [refresh, setRefresh] = useState(0)
   const filters = useRef<{ search: string; status: ShipmentStatus }>({ search: '', status: 'all' })
   const [selected, setSelected] = useState<LoadView | null>(null)
   const selectedShipment = selected ? shipments?.find((shipment) => shipment.external_id === selected.external_id) ?? selected : null
@@ -30,7 +32,7 @@ export default function ShipmentsPage() {
       const count = filterShipments(state.shipments, filters.current.search, filters.current.status).length
       setPage((value) => Math.min(value, Math.max(1, Math.ceil(count / pageSize))))
     }
-  }), [])
+  }), [refresh])
 
   const rows = shipments ?? []
   const visible = sortShipments(filterShipments(rows, search, status), sort, direction)
@@ -105,6 +107,11 @@ export default function ShipmentsPage() {
           </div>
         )}
       </div>
+      <HistoryCleanup resource="shipments" description="Deletes oldest eligible completed shipment history across all pages. Active bookings and unfinished turnaround are protected. Search and status filters do not change the deletion scope." onComplete={() => {
+        setSelected(null)
+        setPage(1)
+        setRefresh((value) => value + 1)
+      }} />
       {selectedShipment && <ShipmentDialog key={selectedShipment.external_id} shipment={selectedShipment} revision={revision} onClose={() => setSelected(null)} />}
     </PageSection>
   )

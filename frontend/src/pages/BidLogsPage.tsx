@@ -3,6 +3,7 @@ import { subscribeBidLogs } from '../api/bids'
 import type { BidView, LiveBidLogsState } from '../api/bids'
 import EmptyPanel from '../components/EmptyPanel'
 import PageSection from '../components/PageSection'
+import HistoryCleanup from '../components/HistoryCleanup'
 import BidLogDialog from '../components/BidLogDialog'
 import { BID_LOG_PAGE_SIZE, filterBidLogs, getBidDate, getBidLogPage, sortBidLogs } from '../utils/bid-logs'
 import type { BidDateField, BidSortField, BidStatusFilter, SortDirection } from '../utils/bid-logs'
@@ -57,6 +58,7 @@ export default function BidLogsPage() {
   const [statusFilter, setStatusFilter] = useState<BidStatusFilter>('all')
   const statusFilterRef = useRef<BidStatusFilter>('all')
   const [page, setPage] = useState(1)
+  const [refresh, setRefresh] = useState(0)
   const [selected, setSelected] = useState<BidView | null>(null)
   const selectedBid = selected ? bids?.find((bid) => bid.order.external_id === selected.order.external_id) ?? selected : null
 
@@ -68,7 +70,7 @@ export default function BidLogsPage() {
         setPage((current) => Math.min(current, totalPages))
       }
     })
-  }, [])
+  }, [refresh])
 
   function changeSort(field: BidSortField) {
     setDirection(field === sortField && direction === 'asc' ? 'desc' : 'asc')
@@ -233,6 +235,11 @@ export default function BidLogsPage() {
           </div>
         )}
       </div>
+      <HistoryCleanup resource="bids" description="Deletes oldest resolved open-bid history across all pages. Fixed-rate orders and active work are retained. Status and sort filters do not change the deletion scope." onComplete={() => {
+        setSelected(null)
+        setPage(1)
+        setRefresh((value) => value + 1)
+      }} />
       {selectedBid && <BidLogDialog bid={selectedBid} onClose={() => setSelected(null)} />}
     </PageSection>
   )

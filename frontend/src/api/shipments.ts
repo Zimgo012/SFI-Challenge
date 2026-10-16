@@ -1,6 +1,7 @@
 import { apiFetch, withQuery } from './client'
 import { endpoints } from './endpoints'
-import type { LoadView, Page, PaginationParams, SystemStatus } from './types'
+import type { HistoryCleanupParams, LoadView, Page, PaginationParams, SystemStatus } from './types'
+import { validateCleanupCount } from '../utils/history-cleanup'
 import { subscribeLoads } from './orders'
 import { confirmedShipments } from '../utils/shipments'
 
@@ -9,6 +10,14 @@ export async function getShipments(
   options: RequestInit = {},
 ) {
   return apiFetch(withQuery(endpoints.shipments, params), { ...options, method: 'GET' })
+}
+
+export async function deleteOldestShipments(
+  params: HistoryCleanupParams,
+  options: RequestInit = {},
+) {
+  validateCleanupCount(params.count)
+  return apiFetch(withQuery(endpoints.oldestShipments, params), { ...options, method: 'DELETE' })
 }
 
 export async function getAllShipments(options: RequestInit = {}): Promise<LoadView[]> {
@@ -82,4 +91,4 @@ export function subscribeShipments(onChange: (state: LiveShipmentsState) => void
   }
 }
 
-export type { AssignmentView, LoadDetail, LoadView } from './types'
+export type { AssignmentView, HistoryCleanupParams, HistoryCleanupResult, LoadDetail, LoadView } from './types'

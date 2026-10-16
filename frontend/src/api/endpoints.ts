@@ -13,6 +13,7 @@ export const endpoints = {
     bid: (externalId: string) => `/api/loads/${id(externalId)}/bid`,
   },
   bids: '/api/bids',
+  oldestBids: '/api/bids/oldest',
   terminals: {
     list: '/api/terminals',
     detail: (code: string) => `/api/terminals/${id(code)}`,
@@ -28,7 +29,9 @@ export const endpoints = {
     legacyCapacity: '/fleet/capacity',
   },
   shipments: '/api/shipments',
+  oldestShipments: '/api/shipments/oldest',
   activity: '/api/activity',
+  oldestActivity: '/api/activity/oldest',
   overview: '/api/overview',
   systemStatus: '/api/system/status',
   simulationClock: '/__simulation/clock',

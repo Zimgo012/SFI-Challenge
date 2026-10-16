@@ -5,6 +5,7 @@ import type { ActivityView, LiveActivityState } from '../api/activity'
 import ActivityDialog from '../components/ActivityDialog'
 import EmptyPanel from '../components/EmptyPanel'
 import PageSection from '../components/PageSection'
+import HistoryCleanup from '../components/HistoryCleanup'
 import { activityColor, activityEventTypes } from '../utils/activity'
 import { timestamp } from '../utils/load-format'
 
@@ -108,6 +109,11 @@ export default function ActivityPage() {
           </div>
         )}
       </div>
+      <HistoryCleanup resource="activity" description={applied.orderId || applied.eventType ? 'Deletes oldest eligible events matching the applied order and event filters. The latest history import is protected.' : 'Deletes oldest eligible activity events across all pages. The latest history import is protected.'} scope={{ external_id: applied.orderId || undefined, event_type: applied.eventType || undefined }} onComplete={() => {
+        setSelected(null)
+        setPage(1)
+        setRefresh((value) => value + 1)
+      }} />
       {selectedEvent && <ActivityDialog event={selectedEvent} onClose={() => setSelected(null)} />}
     </PageSection>
   )

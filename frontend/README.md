@@ -234,6 +234,40 @@ must not contain secrets. See [Vite environment variables](https://vite.dev/guid
 `src/api/` groups each resource's requests, live subscriptions, request types,
 and response-type exports in one module:
 
+History cleanup requests live with their resources: `deleteOldestActivity`,
+`deleteOldestShipments`, and `deleteOldestBids`, also exported from `src/api`.
+They accept `{ count, dry_run? }` plus optional `RequestInit`, validate a whole
+count from 1 to 10,000, and return the native `Response`. Activity additionally
+accepts `external_id` and exact `event_type` filters. `HistoryCleanupResult`
+describes selected/deleted/protected counts, record IDs, and deletion mode.
+
+```ts
+import { deleteOldestActivity } from './api'
+import type { HistoryCleanupResult } from './api'
+
+const response = await deleteOldestActivity({
+  count: 100,
+  dry_run: true,
+  event_type: 'sync.error',
+})
+if (!response.ok) throw new Error('Unable to preview history cleanup.')
+const preview: HistoryCleanupResult = await response.json()
+console.log(preview.matched_count, preview.protected_count)
+```
+
+Use `dry_run: true` to preview; omitting it performs cleanup. After a real cleanup,
+refetch the resource list and overview. Shipment and bid histories respect the
+API's durable deletion markers even when retained orders arrive over WebSocket.
+Live opportunities remain visible according to order status.
+
+Activity, Bid Logs, and Shipments each provide a Delete oldest records control
+with a count input (1–10,000). Submitting deletes the oldest eligible history
+across pages, displays actual deleted/protected counts, closes stale details,
+returns to page one, and refreshes the list and overview. Activity uses its
+applied order/event filters; shipment and bid cleanup use the endpoint's global
+eligible scope regardless of table filters. Duplicate requests are blocked while
+pending, and uncertain failures refresh the list without retrying deletion.
+
 | Module | Responsibilities |
 | --- | --- |
 | `orders.ts` | Loads, booking actions, decisions, order stream, and expiration |

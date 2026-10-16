@@ -1,12 +1,26 @@
 import { apiFetch, withQuery } from './client'
 import { endpoints } from './endpoints'
-import type { ActivityView, Page, PaginationParams } from './types'
+import type { ActivityView, HistoryCleanupParams, Page, PaginationParams } from './types'
+import { validateCleanupCount } from '../utils/history-cleanup'
 import { subscribeLoads } from './orders'
 import { subscribeTerminalStatuses } from './terminals'
 
 export interface ActivityParams extends PaginationParams {
   external_id?: string
   event_type?: string
+}
+
+export interface ActivityCleanupParams extends HistoryCleanupParams {
+  external_id?: string
+  event_type?: string
+}
+
+export async function deleteOldestActivity(
+  params: ActivityCleanupParams,
+  options: RequestInit = {},
+) {
+  validateCleanupCount(params.count)
+  return apiFetch(withQuery(endpoints.oldestActivity, params), { ...options, method: 'DELETE' })
 }
 
 export async function getActivity(
@@ -91,4 +105,4 @@ export function subscribeActivity(
   }
 }
 
-export type { ActivityView } from './types'
+export type { ActivityView, HistoryCleanupParams, HistoryCleanupResult } from './types'

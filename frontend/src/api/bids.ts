@@ -1,13 +1,22 @@
 import { apiFetch, withQuery } from './client'
 import { endpoints } from './endpoints'
 import { getLoads, subscribeLoads } from './orders'
-import type { BidView, LoadView, Page, PaginationParams } from './types'
+import type { BidView, HistoryCleanupParams, LoadView, Page, PaginationParams } from './types'
+import { validateCleanupCount } from '../utils/history-cleanup'
 
 export async function getBids(
   params: PaginationParams = {},
   options: RequestInit = {},
 ) {
   return apiFetch(withQuery(endpoints.bids, params), { ...options, method: 'GET' })
+}
+
+export async function deleteOldestBids(
+  params: HistoryCleanupParams,
+  options: RequestInit = {},
+) {
+  validateCleanupCount(params.count)
+  return apiFetch(withQuery(endpoints.oldestBids, params), { ...options, method: 'DELETE' })
 }
 
 // Include closed orders even when they expired or were declined without a bid.
@@ -37,6 +46,10 @@ export async function getBidLogs(options: RequestInit = {}): Promise<BidView[]> 
       throw new Error('The order history response was invalid.')
     }
     for (const order of page.items) {
+      if (order.bid_history_deleted_at) {
+        records.delete(order.external_id)
+        continue
+      }
       const bid = records.get(order.external_id)
       records.set(order.external_id, bid ? { ...bid, order } : {
         action_id: null,
@@ -51,7 +64,7 @@ export async function getBidLogs(options: RequestInit = {}): Promise<BidView[]> 
     if (page.items.length === 0 || offset >= page.total) break
   }
 
-  return [...records.values()].filter((bid) => ['fixed_rate', 'open_bid'].includes(bid.order.order_type) && bid.order.status !== 'open')
+  return [...records.values()].filter((bid) => !bid.order.bid_history_deleted_at && ['fixed_rate', 'open_bid'].includes(bid.order.order_type) && bid.order.status !== 'open')
 }
 
 export interface LiveBidLogsState {
@@ -105,6 +118,7 @@ export function subscribeBidLogs(onChange: (state: LiveBidLogsState) => void): (
     }
   }
 
+  void refreshLogs()
   const unsubscribe = subscribeLoads({ order_type: 'all', status: 'all' }, (state) => {
     if (disposed) return
     connection = state.connection
@@ -125,4 +139,4 @@ export function subscribeBidLogs(onChange: (state: LiveBidLogsState) => void): (
   }
 }
 
-export type { BidRequest, BidView } from './types'
+export type { BidRequest, BidView, HistoryCleanupParams, HistoryCleanupResult } from './types'

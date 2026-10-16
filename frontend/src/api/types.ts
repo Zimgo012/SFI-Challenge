@@ -99,6 +99,8 @@ export interface LoadView {
   assigned_terminal_code: string | null
   last_synced_at: string | null
   board_missing_at: string | null
+  shipment_history_deleted_at: string | null
+  bid_history_deleted_at: string | null
   seconds_remaining: number | null
   estimated_profit: DecimalString | null
   profit_category: string
@@ -569,4 +571,23 @@ export interface OrderRecommendations {
 export interface CostPreviewRequest {
   bid_rate?: string
   unit_id?: string
+}
+
+export interface HistoryCleanupParams {
+  count: number
+  dry_run?: boolean
+}
+
+export interface HistoryCleanupResult {
+  resource: 'activity' | 'shipments' | 'bids'
+  requested_count: number
+  matched_count: number
+  deleted_count: number
+  eligible_count_before: number
+  remaining_count: number
+  protected_count: number
+  record_ids: string[]
+  dry_run: boolean
+  deletion_mode: 'delete_rows' | 'hide_history'
+  message: string
 }
