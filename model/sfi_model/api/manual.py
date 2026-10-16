@@ -13,6 +13,7 @@ from sfi_model.api.pricing import (
     PricingErrorDetail,
     SupportWarning,
 )
+from sfi_model.api.ranges import RecommendedRange, recommend_range
 from sfi_model.api.telemetry import note_error
 
 
@@ -29,6 +30,7 @@ class ManualWarningPolicy(BaseModel):
     minimum_profit_dollars: float | None = Field(default=None, ge=0)
     minimum_margin_percent: float | None = Field(default=None, ge=0, lt=100)
     maximum_reference_deviation_percent: float | None = Field(default=None, ge=0)
+    maximum_bid_dollars: float | None = Field(default=None, gt=0)
 
 
 class ManualModeRequest(BaseModel):
@@ -61,6 +63,7 @@ class ManualModeResponse(BaseModel):
     advisory: BidPredictionResponse | BaselineFallbackResponse | UnavailableAdvice
     comparison: ManualComparison
     warnings: list[SupportWarning]
+    recommended_range: RecommendedRange
     advisory_only: Literal[True] = True
     submission_enabled: Literal[False] = False
     requires_guardrail_checks: Literal[True] = True
@@ -70,7 +73,7 @@ def finite(value: float) -> float | None:
     return value if math.isfinite(value) else None
 
 
-def create_manual_endpoint(predict_bid):
+def create_manual_endpoint(predict_bid, get_history=lambda: None):
     def evaluate_manual(request: ManualModeRequest) -> ManualModeResponse:
         # Only the nested shipment reaches pricing. Economics and entered bid are never features.
         try:
@@ -140,6 +143,15 @@ def create_manual_endpoint(predict_bid):
             advisory=advisory,
             comparison=comparison,
             warnings=warnings,
+            recommended_range=recommend_range(
+                get_history(),
+                request.shipment.lane_id,
+                request.shipment.distance_miles,
+                economics.total_estimated_cost_dollars,
+                policy.minimum_profit_dollars,
+                policy.minimum_margin_percent,
+                policy.maximum_bid_dollars,
+            ),
         )
 
     return evaluate_manual

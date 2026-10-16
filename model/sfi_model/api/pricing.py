@@ -235,19 +235,32 @@ class PricingErrorResponse(BaseModel):
     detail: PricingErrorDetail
 
 
-def create_pricing_router(bundle_path: Path | None = None) -> APIRouter:
+def create_pricing_router(
+    bundle_path: Path | None = None, range_path: Path | None = None
+) -> APIRouter:
     """Load once per lifespan; model failures leave ordinary backend routes available."""
     predictor = None
     fallback = None
     settings = FallbackSettings()
     invalid_policy = False
+    historical_range = None
     configure_logging()
 
     @asynccontextmanager
     async def lifespan(app):
-        nonlocal predictor, fallback, settings, invalid_policy
+        nonlocal predictor, fallback, settings, invalid_policy, historical_range
         started = time.perf_counter()
         configured = os.getenv("SFI_MODEL_BUNDLE") or bundle_path
+        history_path = os.getenv("SFI_HISTORICAL_RANGE_ARTIFACT") or range_path
+        if configured and history_path:
+            try:
+                from sfi_model.baselines.historical_range import HistoricalPricingRange
+
+                historical_range = await asyncio.to_thread(
+                    HistoricalPricingRange, Path(history_path), Path(configured)
+                )
+            except Exception as error:
+                diagnostic("HISTORICAL_RANGE_INITIALIZATION_FAILED", error)
         try:
             settings = FallbackSettings.from_environment()
         except ValueError as error:
@@ -273,6 +286,7 @@ def create_pricing_router(bundle_path: Path | None = None) -> APIRouter:
                 "event": "pricing_startup",
                 "model_loaded": predictor is not None,
                 "fallback_loaded": fallback is not None,
+                "historical_range_loaded": historical_range is not None,
                 "invalid_policy": invalid_policy,
                 "fallback_mode": settings.mode,
                 "unseen_category_action": settings.unseen_category_action,
@@ -286,6 +300,7 @@ def create_pricing_router(bundle_path: Path | None = None) -> APIRouter:
             predictor = None
             fallback = None
             invalid_policy = False
+            historical_range = None
             write_event(logging.INFO, {"event": "pricing_shutdown"})
 
     router = APIRouter(
@@ -351,7 +366,7 @@ def create_pricing_router(bundle_path: Path | None = None) -> APIRouter:
 
     router.add_api_route(
         "/manual-mode/evaluate",
-        create_manual_endpoint(predict_bid),
+        create_manual_endpoint(predict_bid, lambda: historical_range),
         methods=["POST"],
         response_model=ManualModeResponse,
         summary="Compare an authoritative manual bid with advisory pricing",
