@@ -1,7 +1,7 @@
 import type { LoadFeedback } from '../utils/api-feedback'
 
 export default function LoadNotification({ feedback, onCheckStatus, onDismiss }: { feedback: LoadFeedback; onCheckStatus?: () => void; onDismiss?: () => void }) {
-  return <div role={feedback.tone === 'success' || feedback.tone === 'info' ? 'status' : 'alert'} className={`alert items-start ${feedback.tone === 'success' ? 'alert-success' : feedback.tone === 'error' ? 'alert-error' : feedback.tone === 'info' ? 'alert-info' : 'alert-warning'}`}>
+  return <div role={feedback.tone === 'success' || feedback.tone === 'info' ? 'status' : 'alert'} className={`app-notification alert items-start ${feedback.tone === 'success' ? 'alert-success' : feedback.tone === 'error' ? 'alert-error' : feedback.tone === 'info' ? 'alert-info' : 'alert-warning'}`}>
     <div className="min-w-0 space-y-2 text-sm">
       <p className={feedback.tone === 'error' || feedback.tone === 'warning' ? 'sr-only' : 'font-semibold'}>{feedback.title}</p>
       <p className="break-words font-medium leading-relaxed">{feedback.message}</p>

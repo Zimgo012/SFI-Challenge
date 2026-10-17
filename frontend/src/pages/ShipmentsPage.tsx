@@ -44,13 +44,13 @@ export default function ShipmentsPage() {
   const pageRows = visible.slice(offset, offset + pageSize)
 
   return (
-    <PageSection title="Shipments" description="Track confirmed bookings from acceptance through delivery. Shipment statuses update automatically.">
+    <PageSection title="Shipments" description="Track accepted shipments through delivery. Shipment statuses update automatically.">
       {error && <div role="alert" className="alert alert-warning"><div><p>{error}</p><p className="mt-1 text-sm">{shipments ? 'Showing previous shipments. ' : ''}Live updates will resume automatically when the service recovers.</p></div></div>}
       {shipments !== null && (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           {[
-            { title: 'Confirmed bookings', value: rows.length },
-            { title: 'Awaiting pickup', value: rows.filter((shipment) => shipment.status === 'accepted').length },
+            { title: 'Total shipments', value: rows.length },
+            { title: 'Accepted', value: rows.filter((shipment) => shipment.status === 'accepted').length },
             { title: 'In transit', value: rows.filter((shipment) => shipment.status === 'in_transit').length },
             { title: 'Delivered', value: rows.filter((shipment) => shipment.status === 'completed').length },
           ].map((summary) => <div key={summary.title} className="stat rounded-xl border border-base-300 bg-base-100 p-4"><div className="stat-title text-xs">{summary.title}</div><div className="stat-value text-2xl text-primary">{summary.value}</div></div>)}
@@ -72,13 +72,13 @@ export default function ShipmentsPage() {
         <label className="flex flex-col gap-1.5 text-xs font-medium">Order<select className="select select-sm w-36" value={direction} onChange={(event) => { setDirection(event.target.value as 'asc' | 'desc'); setPage(1) }}><option value="desc">Newest first</option><option value="asc">Oldest first</option></select></label>
       </div>
       <div aria-busy={shipments === null}>
-        {shipments === null && <div role="status" className="flex items-center gap-3 rounded-xl border border-base-300 bg-base-100 p-8"><span className="loading loading-spinner text-primary" aria-hidden="true" />Loading confirmed shipments…</div>}
-        {shipments !== null && rows.length === 0 && <EmptyPanel title="No confirmed shipments yet" description="Accepted bookings and winning bids will appear here once confirmed by the board." />}
+        {shipments === null && <div role="status" className="flex items-center gap-3 rounded-xl border border-base-300 bg-base-100 p-8"><span className="loading loading-spinner text-primary" aria-hidden="true" />Loading shipments…</div>}
+        {shipments !== null && rows.length === 0 && <EmptyPanel title="No accepted shipments yet" description="Accepted offers and winning bids appear here after board acceptance." />}
         {shipments !== null && rows.length > 0 && visible.length === 0 && <EmptyPanel title="No matching shipments" description="Try another shipment, route, unit, or status." />}
         {shipments !== null && visible.length > 0 && (
           <div className="overflow-hidden rounded-xl border border-base-300 bg-base-100">
             <div className="overflow-x-auto"><table className="table table-sm">
-              <caption className="sr-only">Confirmed shipments, current status, schedule, unit assignment, and estimated total cost.</caption>
+              <caption className="sr-only">Shipments, current status, schedule, unit assignment, and estimated total cost.</caption>
               <thead><tr>{['Shipment', 'Route', 'Status', 'Schedule', 'Unit', 'Estimated cost', 'Details'].map((title) => <th scope="col" key={title}>{title}</th>)}</tr></thead>
               <tbody>{pageRows.map((shipment) => (
                 <tr key={shipment.external_id} className="hover:bg-base-200/60">

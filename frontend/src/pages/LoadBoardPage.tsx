@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router'
 import { LoadDecisionError, getLoad, submitLoadDecision, subscribeLoads } from '../api/orders'
 import type { LiveLoadsState, LoadDetail, LoadView, OrderType } from '../api/orders'
 import { getLoadOpportunities } from '../utils/load-board'
@@ -38,7 +39,7 @@ export default function LoadBoardPage() {
     : autopilot.pendingStart ? autopilotForm(autopilot.pendingStart) : autoForm
   const validAutoSettings = !Object.keys(autopilotFormErrors(autoForm)).length
   const [orderType, setOrderType] = useState<OrderType | 'all'>('all')
-  const [{ loads: streamedLoads, connection, error }, setStream] = useState(initialState)
+  const [{ loads: streamedLoads, system, connection, error }, setStream] = useState(initialState)
   usePageStatus(connection, error ?? (showSettings || historyOpen ? autopilot.error : null))
   const [selected, setSelected] = useState<{ load: LoadView; bid: boolean } | null>(null)
   const [decisions, setDecisions] = useState<Record<string, 'submitting' | 'sent' | 'uncertain'>>({})
@@ -241,7 +242,10 @@ export default function LoadBoardPage() {
         )}
 
         {loads?.length === 0 && (
-          <EmptyPanel title="No open opportunities" description="New orders matching the selected type will appear here automatically." />
+          <div className="space-y-3">
+            <EmptyPanel title="No open opportunities" description={Number(system?.simulation_speed) > 1 ? `At ${Number(system?.simulation_speed).toLocaleString()}× speed, offers can expire quickly. Lower the speed or increase order arrival frequency in Settings.` : 'New orders matching the selected type will appear here automatically.'} />
+            {import.meta.env.DEV && Number(system?.simulation_speed) > 1 && <Link to="/settings" className="btn btn-outline btn-sm">Adjust simulation controls</Link>}
+          </div>
         )}
 
         {loads !== null && loads.length > 0 && (

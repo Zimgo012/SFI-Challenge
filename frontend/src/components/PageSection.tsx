@@ -8,7 +8,7 @@ type PageSectionProps = {
 
 export default function PageSection({ title, children }: PageSectionProps) {
   return (
-    <section aria-label={title} className="space-y-6">
+    <section aria-label={title} className="app-page space-y-6">
       {children}
     </section>
   )

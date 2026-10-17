@@ -9,7 +9,7 @@ export { getShipments, getAllShipments, subscribeShipments, deleteOldestShipment
 export { getActivity, subscribeActivity, deleteOldestActivity } from './activity'
 export { getOverview, subscribeOverview } from './overview'
 export type { LiveOverviewState } from './overview'
-export { getSystemStatus, getSimulationClock, setSimulationSpeed } from './system'
+export { getSystemStatus, getSimulationClock, setSimulationSpeed, getSimulationSettings, setSimulationSettings, spawnSimulationOrders } from './system'
 export { getHealth } from './health'
 export { getAutopilotRuns, getAutopilotRun, getAutopilotAttempts, startAutopilotRun, stopAutopilotRun } from './autopilot'
 export { getAnalyticsOrders, getAnalyticsRequests, subscribeAnalytics } from './analytics'

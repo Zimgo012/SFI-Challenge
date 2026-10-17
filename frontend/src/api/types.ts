@@ -222,6 +222,26 @@ export interface SimulationClock {
   note: string
 }
 
+export interface SimulationSettings {
+  simulation_speed: number
+  order_interval_seconds: number
+  order_ttl_sim_minutes: number
+  bid_decision_sim_minutes: number
+  note: string
+}
+
+export interface SimulationSettingsRequest {
+  simulation_speed?: number
+  order_interval_seconds?: number
+}
+
+export interface SpawnOrdersResult {
+  created: number
+  fixed_rate: number
+  open_bid: number
+  external_ids: string[]
+}
+
 export interface ProfitSummary {
   confirmed_estimated_profit: DecimalString
   conditional_pending_bid_profit: DecimalString

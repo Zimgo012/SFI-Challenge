@@ -58,7 +58,7 @@ export default function ShipmentDialog({ shipment, revision, onClose }: {
         </header>
         <div className="min-h-0 space-y-7 overflow-y-auto p-6">
           <ol className="steps steps-horizontal w-full text-xs" aria-label="Shipment progress">
-            {['Confirmed', 'In transit', 'Delivered'].map((title, index) => <li key={title} className={`step ${stage >= index ? 'step-primary' : ''}`} aria-current={stage === index ? 'step' : undefined}>{title}</li>)}
+            {['Accepted', 'In transit', 'Delivered'].map((title, index) => <li key={title} className={`step ${stage >= index ? 'step-primary' : ''}`} aria-current={stage === index ? 'step' : undefined}>{title}</li>)}
           </ol>
           <section className="space-y-4 rounded-xl bg-base-200 p-4" aria-labelledby="shipment-assignment-title" aria-busy={updating}>
             <h3 id="shipment-assignment-title" className="font-semibold">Confirmed assignment</h3>

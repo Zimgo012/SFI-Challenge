@@ -31,11 +31,12 @@ export default function AppLayout() {
 
   return (
     <PageStatusContext.Provider value={statusContext}>
-    <div className={`min-h-screen bg-base-200 lg:grid ${sidebarOpen ? 'lg:grid-cols-[16rem_1fr]' : 'lg:grid-cols-1'}`}>
+    <div className="app-shell min-h-screen bg-base-200" data-sidebar-open={sidebarOpen}>
       <a href="#main-content" className="btn btn-primary fixed top-2 left-2 z-50 -translate-y-24 focus:translate-y-0">
         Skip to content
       </a>
-      <aside id="app-sidebar" hidden={!sidebarOpen} className="border-b border-base-300 bg-base-100 lg:sticky lg:top-0 lg:h-screen lg:overflow-y-auto lg:border-r lg:border-b-0">
+      <aside id="app-sidebar" inert={!sidebarOpen} aria-hidden={!sidebarOpen} className="app-sidebar bg-base-100">
+        <div className="app-sidebar-content">
         <div className="px-6 pt-7 pb-5">
           <p className="text-lg font-bold tracking-tight text-primary">SFI Challenge</p>
           <p className="mt-1 text-sm text-base-content/60">Transport operations</p>
@@ -55,6 +56,7 @@ export default function AppLayout() {
             ))}
           </ul>
         </nav>
+        </div>
       </aside>
       <div className="min-w-0">
         <header className="sticky top-0 z-20 flex min-h-22 flex-wrap items-center justify-between gap-x-6 gap-y-4 border-b border-base-300 bg-base-100 px-6 py-5 lg:px-10">
@@ -73,7 +75,7 @@ export default function AppLayout() {
                 <path strokeLinecap="round" strokeLinejoin="round" d={sidebarOpen ? 'M9 4v16m7-11-3 3 3 3' : 'M9 4v16m4-11 3 3-3 3'} />
               </svg>
             </button>
-            <h1 id="page-title" className="text-2xl leading-tight font-bold tracking-tight text-base-content sm:text-3xl">{currentPage?.label ?? 'Page not found'}</h1>
+            <h1 key={pathname} id="page-title" className="app-page-title text-2xl leading-tight font-bold tracking-tight text-base-content sm:text-3xl">{currentPage?.label ?? 'Page not found'}</h1>
           </div>
           <div className="flex w-full flex-wrap items-center justify-between gap-3 sm:w-auto sm:justify-end">
             <div className="rounded-xl bg-base-200/70 px-3 py-2"><SimulationClock /></div>

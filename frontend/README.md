@@ -2,6 +2,10 @@
 
 React with TypeScript, Vite, Tailwind CSS, and daisyUI.
 
+See the [frontend challenge report](requirements/frontend-challenge-report.md)
+for implementation coverage, architecture, validation evidence, and remaining
+deliverables.
+
 ## Getting started
 
 ```sh
@@ -23,7 +27,7 @@ Open the local URL printed by Vite. `/` redirects to `/dashboard`.
 | Fleet & Schedule | `/fleet` | Inspect individual units and assignment timelines. |
 | Shipments | `/shipments` | Track confirmed bookings through delivery. |
 | Activity | `/activity` | Review decisions, submissions, results, and errors. |
-| Settings | `/settings` | Temporarily adjust simulator speed during local development. |
+| Settings | `/settings` | Adjust simulator speed and order arrival frequency during local development. |
 
 Page components live in `src/pages/`. `src/layouts/AppLayout.tsx` provides
 shared navigation with active states; `src/config/navigation.ts` defines its
@@ -124,16 +128,47 @@ refresh overview metadata, with a 30-second REST fallback and a manual Refresh
 button. Connection failures retain previous data; leaving the page closes both
 streams, aborts reads, and cancels refresh timers.
 
-Settings is a temporary local-development page with a current speed/clock readout,
-speed presets, and a custom multiplier from 1 to 100,000. Changes are sent only
-when Apply speed is selected. The board's `POST /simulation/clock` also resets
-its simulation time to current real time; it does not change the wall-clock
-arrival frequency of new orders. Other pages reflect the new speed after the
-dispatcher ingests the next clock sample.
+Settings shows simulation speed, real-time order arrival interval, and each
+offer's effective real-time lifetime. Speed ranges from 1 to 100,000 and arrival
+interval from 0.5 to 3,600 real seconds. Changes are sent to
+`POST /simulation/settings` only when Apply settings is selected, with only the
+changed fields. Speed changes preserve the current simulated instant before
+changing acceleration; arrival interval changes also preserve the clock. The Browse orders preset selects 10× speed
+and a 5-second interval without applying them automatically.
+
+Settings also displays `order_ttl_sim_minutes` (offer lifetime) and
+`bid_decision_sim_minutes` (bid decision delay) from `GET /simulation/settings`,
+alongside their real-time equivalents at the currently saved speed. These fields
+are read-only: the simulator's update schema only accepts `simulation_speed` and
+`order_interval_seconds`. Refresh settings reloads all four values. The frontend
+does not send unsupported timing fields or substitute defaults for missing data.
+
+At 60×, the default 10-simulated-minute offer lifetime is only 10 real seconds.
+With the default 60-second arrival interval, most of each minute has no open
+offers. Settings flags these gaps and speeds too fast for manual review. Arrival
+changes take effect after the generator's current wait; they do not spawn orders
+immediately. Expired offers remain in Bid Logs. Other pages reflect clock changes
+after the dispatcher ingests the next sample.
+
+The dispatcher discovers open offers separately from its capped all-status
+history read, so future-dated records from an earlier clock reset cannot crowd
+fresh offers out of that history window. Normal reconciliation refreshes active
+orders and unresolved/tracked actions without re-fetching the entire closed
+archive; suspected resets still require the full missing-order proof.
+
+Spawn orders sends `POST /simulation/spawn-orders` with an explicit count from
+1 to 50 (default 6). It shows confirmed totals by type and the created order IDs,
+with a link to Load Board. Counts of 2 or more include both order types. It never
+spawns on mount or retries automatically; duplicate clicks are blocked while a
+request is pending. Orders become visible after dispatcher reconciliation, not
+necessarily immediately: the simulator's spawn route does not broadcast an order
+event. Lower speeds give new offers time to sync before expiration.
 
 Set `SIMULATION_API_URL` in `.env` to the simulator origin (default
 `http://127.0.0.1:8087`, matching the local dispatcher configuration). Vite
-proxies `/__simulation/clock` to `/simulation/clock` on that origin, keeping
+proxies `/__simulation/clock`, `/__simulation/settings`, and
+`/__simulation/spawn-orders` to the corresponding
+`/simulation/*` paths on that origin, keeping
 simulator controls separate from dispatcher requests. Restart Vite after
 changing this value. This server-side variable is not exposed as a Vite client
 environment variable. Production builds show the temporary controls as

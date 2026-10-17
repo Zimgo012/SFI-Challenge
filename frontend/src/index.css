@@ -37,17 +37,117 @@
   --color-destructive-foreground: var(--destructive-foreground);
 }
 
+/* Animate interactions and newly opened views, never incoming data values. */
+:root {
+  --motion-fast: 140ms;
+  --motion-standard: 200ms;
+  --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.app-shell,
+.app-shell :where(header, main, section, article, aside, .bg-base-100, .bg-base-200),
+:where(dialog, button, a, input, select, textarea, summary, .terminal-globe-code) {
+  transition-property: color, background-color, border-color, box-shadow, opacity;
+  transition-duration: var(--motion-fast);
+  transition-timing-function: ease-out;
+}
+
+@keyframes app-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes app-panel-enter {
+  from { opacity: 0; transform: translateY(4px) scale(0.995); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 @keyframes load-panel-enter {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
+  from { opacity: 0; transform: translateX(16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.app-page, .app-page-title {
+  animation: app-fade-in var(--motion-standard) ease-out;
+}
+
+dialog[open]:not(.load-details-panel), .app-notification {
+  animation: app-panel-enter var(--motion-standard) var(--motion-ease);
 }
 
 .load-details-panel[open] {
-  animation: load-panel-enter 240ms ease-out;
+  animation: load-panel-enter var(--motion-standard) var(--motion-ease);
+}
+
+dialog[open]::backdrop,
+details[open] > :not(summary),
+#load-board-autopilot-settings:not([hidden]) {
+  animation: app-fade-in var(--motion-fast) ease-out;
+}
+
+.app-sidebar {
+  display: grid;
+  min-width: 0;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  opacity: 0;
+  transition: grid-template-rows var(--motion-standard) var(--motion-ease),
+    opacity var(--motion-fast) ease-out,
+    visibility 0s linear var(--motion-standard),
+    background-color var(--motion-fast) ease-out;
+}
+
+.app-sidebar-content {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-shell[data-sidebar-open='true'] .app-sidebar {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  opacity: 1;
+  transition-delay: 0s;
+}
+
+.app-metric-card {
+  transition: translate var(--motion-fast) ease-out,
+    border-color var(--motion-fast) ease-out,
+    background-color var(--motion-fast) ease-out;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .app-metric-card:hover { translate: 0 -1px; }
+  .app-shell .card:hover { border-color: color-mix(in srgb, var(--color-primary) 30%, var(--color-base-300)); }
+}
+
+@media (min-width: 1024px) {
+  .app-shell {
+    display: grid;
+    grid-template-columns: 0rem minmax(0, 1fr);
+    transition: grid-template-columns var(--motion-standard) var(--motion-ease),
+      background-color var(--motion-fast) ease-out;
+  }
+  .app-shell[data-sidebar-open='true'] { grid-template-columns: 16rem minmax(0, 1fr); }
+  .app-sidebar {
+    position: sticky;
+    top: 0;
+    display: block;
+    height: 100dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-right: 1px solid var(--color-base-300);
+  }
+  .app-sidebar-content { width: 16rem; overflow: visible; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .load-details-panel[open] { animation: none; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 @plugin "daisyui" {

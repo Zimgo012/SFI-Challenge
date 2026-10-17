@@ -19,6 +19,16 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/__simulation\/clock/, '/simulation/clock'),
         },
+        '/__simulation/settings': {
+          target: simulationTarget,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/__simulation\/settings/, '/simulation/settings'),
+        },
+        '/__simulation/spawn-orders': {
+          target: simulationTarget,
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/__simulation\/spawn-orders/, '/simulation/spawn-orders'),
+        },
         '/api': { target, changeOrigin: true, ws: true },
         '/orders/': { target, changeOrigin: true },
         '/health': { target, changeOrigin: true },
