@@ -5,6 +5,9 @@ import json
 import math
 from datetime import datetime, timedelta, timezone
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, localcontext
+from pathlib import Path
+
+ENGINE_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 CHECKS = {
     "unit_available": "UNIT_UNAVAILABLE",
@@ -29,7 +32,12 @@ def fingerprint(request: dict) -> str:
 
 
 def evaluate(
-    request: dict, candidate: dict | None, prediction_error: str | None, now: datetime
+    request: dict,
+    candidate: dict | None,
+    prediction_error: str | None,
+    now: datetime,
+    *,
+    allow_fixed_rate: bool = False,
 ) -> dict:
     """Trusted adapter supplies validated snapshots; absence always requires review."""
     reasons = []
@@ -57,7 +65,13 @@ def evaluate(
             return datetime.max.replace(tzinfo=timezone.utc)
 
     policy, context = request.get("policy"), request.get("backend_context")
-    if request["shipment"]["order_type"] != "open_bid":
+    fixed_offer = (
+        allow_fixed_rate
+        and request["shipment"]["order_type"] == "fixed_rate"
+        and candidate is not None
+        and candidate["pricing_source"] == "offered_rate"
+    )
+    if request["shipment"]["order_type"] != "open_bid" and not fixed_offer:
         reason("UNSUPPORTED_ORDER_TYPE", "SKIP", "shipment.order_type")
     control = request.get("control") or {}
     for key, code in (
@@ -132,10 +146,12 @@ def evaluate(
         if any(values[key] is None for key in ("loaded_cost_dollars", "deadhead_cost_dollars")):
             reason("INVALID_COST", field="backend_context")
 
-    if candidate is None:
-        if prediction_error is not None:
-            reason(prediction_error, field="advisory")
-    elif candidate["pricing_source"] == "baseline":
+    if prediction_error is not None:
+        reason(prediction_error, field="advisory")
+    if (
+        candidate is not None
+        and candidate.get("reference_pricing_source", candidate["pricing_source"]) == "baseline"
+    ):
         reference = candidate["baseline_reference"]
         if policy is None or policy["fallback_mode"] != "baseline":
             reason("FALLBACK_NOT_ALLOWED", field="policy.fallback_mode")
@@ -174,7 +190,7 @@ def evaluate(
             )
             floor = floor.quantize(cent, rounding=ROUND_CEILING)
             output("minimum_bid_dollars", floor)
-            if floor > Decimal(str(policy["max_bid_dollars"])):
+            if not fixed_offer and floor > Decimal(str(policy["max_bid_dollars"])):
                 reason("NO_FEASIBLE_PRICE", "SKIP", "policy.max_bid_dollars")
         if candidate is not None:
             price = Decimal(str(candidate["predicted_bid_dollars"])).quantize(
@@ -183,6 +199,11 @@ def evaluate(
             miles = Decimal(str(request["shipment"]["distance_miles"]))
             expected = Decimal(str(candidate["predicted_bid_rpm"])) * miles
             raw = Decimal(str(candidate["predicted_bid_dollars"]))
+            if fixed_offer and (
+                request.get("offered_rate_dollars") is None
+                or raw != Decimal(str(request["offered_rate_dollars"]))
+            ):
+                reason("INVALID_CANDIDATE", field="offered_rate_dollars")
             if abs(expected - raw) > max(Decimal("0.000001"), abs(raw) * Decimal("1e-9")):
                 reason("INVALID_CANDIDATE", field="advisory")
             if price <= 0:
@@ -199,20 +220,32 @@ def evaluate(
                         or margin < Decimal(str(policy["min_margin_percent"]))
                     ):
                         reason("BELOW_PROFIT_FLOOR", "SKIP", "advisory.predicted_bid_dollars")
-                if policy is not None and price > Decimal(str(policy["max_bid_dollars"])):
+                if (
+                    not fixed_offer
+                    and policy is not None
+                    and price > Decimal(str(policy["max_bid_dollars"]))
+                ):
                     reason("ABOVE_MAX_BID", "SKIP", "advisory.predicted_bid_dollars")
-                reference = Decimal(str(candidate["baseline_reference"]["predicted_bid_dollars"]))
-                reference_rpm = Decimal(str(candidate["baseline_reference"]["predicted_bid_rpm"]))
-                if abs(reference_rpm * miles - reference) > max(
+                baseline = candidate.get("baseline_reference")
+                if baseline is None:
+                    reason("PRICE_REFERENCE_UNAVAILABLE", field="advisory")
+                    reference = reference_rpm = None
+                else:
+                    reference = Decimal(str(baseline["predicted_bid_dollars"]))
+                    reference_rpm = Decimal(str(baseline["predicted_bid_rpm"]))
+                if reference is not None and abs(reference_rpm * miles - reference) > max(
                     Decimal("0.000001"), abs(reference) * Decimal("1e-9")
                 ):
                     reason("INVALID_REFERENCE", field="advisory.baseline_reference")
-                deviation = 100 * abs(price - reference) / reference
-                output("reference_deviation_percent", deviation)
-                if policy is not None and deviation > Decimal(
-                    str(policy["max_reference_deviation_percent"])
-                ):
-                    reason("REFERENCE_DEVIATION_EXCEEDED", field="advisory.baseline_reference")
+                if reference is not None:
+                    deviation = 100 * abs(price - reference) / reference
+                    output("reference_deviation_percent", deviation)
+                    if (
+                        not fixed_offer
+                        and policy is not None
+                        and deviation > Decimal(str(policy["max_reference_deviation_percent"]))
+                    ):
+                        reason("REFERENCE_DEVIATION_EXCEEDED", field="advisory.baseline_reference")
     if candidate is None and prediction_error is None and not reasons:
         reason("PREDICTION_UNAVAILABLE", field="advisory")
     decision = (

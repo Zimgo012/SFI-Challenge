@@ -1,6 +1,7 @@
 """Inference artifact parity, schema enforcement, and compatibility checks."""
 
 import json
+import pickle
 import tempfile
 import unittest
 from pathlib import Path
@@ -47,6 +48,23 @@ class InferenceBundleTests(unittest.TestCase):
         self.assertEqual(bundle.schema["raw_feature_order"], list(FEATURE_COLUMNS))
         self.assertEqual(bundle.schema["fit_row_count"], 7)
         self.assertEqual(bundle.transform([]).shape, (0, bundle.schema["encoded_feature_count"]))
+
+    def test_preserves_original_training_pickle_bytes_and_rejects_different_state(self):
+        original = pickle.dumps(self.processor, protocol=4)
+        output = self.path.parent / "original"
+        save_inference_bundle(self.processor, self.report, output, preprocessor_bytes=original)
+        self.assertEqual((output / "preprocessor.pkl").read_bytes(), original)
+        load_inference_bundle(output)
+        changed = pickle.loads(original)
+        changed.named_transformers_["numeric"].mean_[0] += 1
+        with self.assertRaisesRegex(ValueError, "differ"):
+            save_inference_bundle(
+                self.processor,
+                self.report,
+                self.path.parent / "bad",
+                preprocessor_bytes=pickle.dumps(changed),
+            )
+        self.assertFalse((self.path.parent / "bad").exists())
 
     def test_mappings_refer_to_correct_encoded_columns_and_training_categories(self):
         bundle = load_inference_bundle(self.path)

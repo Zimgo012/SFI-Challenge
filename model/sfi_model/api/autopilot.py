@@ -1,4 +1,4 @@
-"""Backend-triggered shadow evaluations; no submission or fleet retrieval adapters."""
+"""Backend-triggered live evaluations; no submission or fleet retrieval adapters."""
 
 import asyncio
 import logging
@@ -106,19 +106,19 @@ class BackendContext(TimestampInput):
     checks: OperationalChecks = Field(default_factory=OperationalChecks)
 
 
-class ShadowControl(StrictInput):
+class AutopilotControl(StrictInput):
     autopilot_enabled: bool | None = None
     kill_switch_active: bool | None = None
 
 
 class AutopilotRequest(StrictInput):
-    mode: Literal["shadow"] = "shadow"
+    mode: Literal["live"] = "live"
     shipment_id: str = Field(min_length=1, max_length=128)
     unit_id: str = Field(min_length=1, max_length=128)
     shipment: AutopilotShipment
     backend_context: BackendContext | None = None
     policy: AutopilotPolicy | None = None
-    control: ShadowControl = Field(default_factory=ShadowControl)
+    control: AutopilotControl = Field(default_factory=AutopilotControl)
 
 
 class DecisionReason(BaseModel):
@@ -131,7 +131,7 @@ class DecisionReason(BaseModel):
 class AutopilotResponse(BaseModel):
     model_config = ConfigDict(allow_inf_nan=False)
     api_version: Literal["v1"] = "v1"
-    mode: Literal["shadow"] = "shadow"
+    mode: Literal["live"] = "live"
     decision_id: str
     decision: Literal["BID", "SKIP", "REVIEW"]
     reason_codes: list[str]
@@ -164,7 +164,9 @@ def utc_now():
     return datetime.now(timezone.utc)
 
 
-def create_autopilot_endpoint(predict_bid, timeout_fallback=lambda shipment: None):
+def create_autopilot_endpoint(
+    predict_bid, timeout_fallback=lambda shipment: None, *, emit_decision_log=True
+):
     async def evaluate_autopilot(request: AutopilotRequest) -> AutopilotResponse:
         advisory, prediction_error = None, None
         disabled = (
@@ -221,9 +223,7 @@ def create_autopilot_endpoint(predict_bid, timeout_fallback=lambda shipment: Non
             else None
         )
         result = evaluate(request.model_dump(), candidate, prediction_error, utc_now())
-        live_blockers = ["SHADOW_MODE", "LIVE_AUTHORIZATION_NOT_IMPLEMENTED"]
-        if isinstance(advisory, BidPredictionResponse):
-            live_blockers.append("MODEL_RELEASE_UNVERIFIED")
+        live_blockers = ["LIVE_AUTHORIZATION_REQUIRED"]
         response = AutopilotResponse(
             **result,
             decision_id=uuid4().hex,
@@ -237,19 +237,20 @@ def create_autopilot_endpoint(predict_bid, timeout_fallback=lambda shipment: Non
             live_blockers=live_blockers,
         )
         record = current_log.get()
-        write_event(
-            logging.INFO,
-            {
-                "event": "autopilot_decision",
-                "request_id": record.request_id if record else None,
-                "decision_id": response.decision_id,
-                "decision": response.decision,
-                "reason_codes": response.reason_codes,
-                "policy_version": identifier(response.policy_version),
-                "mode": "shadow",
-                "submission_enabled": False,
-            },
-        )
+        if emit_decision_log:
+            write_event(
+                logging.INFO,
+                {
+                    "event": "autopilot_decision",
+                    "request_id": record.request_id if record else None,
+                    "decision_id": response.decision_id,
+                    "decision": response.decision,
+                    "reason_codes": response.reason_codes,
+                    "policy_version": identifier(response.policy_version),
+                    "mode": "live",
+                    "submission_enabled": False,
+                },
+            )
         return response
 
     return evaluate_autopilot

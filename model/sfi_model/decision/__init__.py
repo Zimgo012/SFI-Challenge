@@ -1,1 +1,1 @@
-"""Deterministic shadow decision rules, independent of model and dispatch services."""
+"""Deterministic live decision rules, independent of model and dispatch services."""

@@ -82,6 +82,9 @@ class PricingRoute(APIRoute):
                         "/api/v1/predict-bid",
                         "/api/v1/manual-mode/evaluate",
                         "/api/v1/autopilot/evaluate",
+                        "/api/v1/autopilot/analyze-batch",
+                        "/api/v1/autopilot/live/evaluate",
+                        "/api/v1/autopilot/live/analyze-batch",
                     }
                     else "/api/v1/predict-bid"
                 )
@@ -249,7 +252,8 @@ class PricingErrorResponse(BaseModel):
 
 
 def create_pricing_router(
-    bundle_path: Path | None = None, range_path: Path | None = None
+    bundle_path: Path | None = None,
+    range_path: Path | None = None,
 ) -> APIRouter:
     """Load once per lifespan; model failures leave ordinary backend routes available."""
     predictor = None
@@ -385,7 +389,7 @@ def create_pricing_router(
         summary="Compare an authoritative manual bid with advisory pricing",
         responses={422: {"model": PricingErrorResponse}},
     )
-    from sfi_model.api.autopilot import AutopilotResponse, create_autopilot_endpoint
+    from sfi_model.api.autopilot import create_autopilot_endpoint
 
     def timeout_fallback(shipment):
         if fallback is None or invalid_policy or settings.mode != "baseline":
@@ -399,12 +403,19 @@ def create_pricing_router(
             diagnostic("FALLBACK_FAILED", error)
             return None
 
-    router.add_api_route(
-        "/autopilot/evaluate",
-        create_autopilot_endpoint(predict_bid, timeout_fallback),
-        methods=["POST"],
-        response_model=AutopilotResponse,
-        summary="Evaluate one model candidate against backend snapshots in shadow mode",
-        responses={422: {"model": PricingErrorResponse}, 503: {"model": PricingErrorResponse}},
+    evaluate_autopilot = create_autopilot_endpoint(predict_bid, timeout_fallback)
+    from sfi_model.api.batch import create_batch_endpoint
+
+    batch_pricing = create_autopilot_endpoint(
+        predict_bid, timeout_fallback, emit_decision_log=False
+    )
+    analyze_batch = create_batch_endpoint(batch_pricing)
+    from sfi_model.api.live import install_live_routes
+
+    install_live_routes(
+        router,
+        evaluate_autopilot,
+        analyze_batch,
+        lambda: predictor.loaded.manifest if predictor is not None else None,
     )
     return router
