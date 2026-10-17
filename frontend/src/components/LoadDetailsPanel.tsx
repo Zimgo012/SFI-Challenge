@@ -13,13 +13,15 @@ type LoadDetailsPanelProps = {
   pending: boolean
   message: string | null
   notification?: LoadFeedback
+  autopilotNotification?: LoadFeedback
+  onDismissAutopilotNotification?: () => void
   onCheckStatus?: () => void
   onClose: () => void
   onSubmitBid: (bidRate: string) => Promise<void>
   onAccept: () => Promise<void>
 }
 
-export default function LoadDetailsPanel({ load, initialBidOpen, canSubmit, pending, message, notification, onCheckStatus, onClose, onSubmitBid, onAccept }: LoadDetailsPanelProps) {
+export default function LoadDetailsPanel({ load, initialBidOpen, canSubmit, pending, message, notification, autopilotNotification, onDismissAutopilotNotification, onCheckStatus, onClose, onSubmitBid, onAccept }: LoadDetailsPanelProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
@@ -53,6 +55,7 @@ export default function LoadDetailsPanel({ load, initialBidOpen, canSubmit, pend
           </div>
           <button type="button" className="btn btn-ghost btn-circle btn-sm shrink-0" aria-label="Close order information" onClick={onClose}>✕</button>
         </header>
+        {autopilotNotification && <div className="max-h-[25dvh] shrink-0 overflow-y-auto"><LoadNotification feedback={autopilotNotification} onDismiss={onDismissAutopilotNotification} /></div>}
         {hasAnalysis ? <>
           {notification && <div className="max-h-[35dvh] shrink-0 overflow-y-auto"><LoadNotification feedback={notification} onCheckStatus={onCheckStatus} /></div>}
           {!notification && message && <div role="alert" className="alert alert-warning shrink-0 rounded-none"><p>{message}</p>{onCheckStatus && <button type="button" className="btn btn-sm btn-outline" onClick={onCheckStatus}>Check status</button>}</div>}

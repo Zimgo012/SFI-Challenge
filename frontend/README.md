@@ -214,6 +214,12 @@ The chart explicitly labels model advice as unavailable because the backend
 rejects fixed-rate analysis with 422. It does not call that endpoint or substitute
 historical prices for model advice. Acceptance and its eligibility checks are unchanged.
 
+Load Board keeps the same order cards in both modes. The Manual / Auto pilot
+switch highlights the selected mode immediately. Auto pilot reveals inline settings;
+Run starts with valid configured limits and Stop stops the run. Manual also requests
+a stop when a run is active. The run status stays separate from mode selection,
+including runs recovered after reload. History is expandable below the cards.
+
 Load cards show the Order ID with right-aligned Hot deal and order-type badges
 stacked beside it. Their review panels show the Order ID beside a Fixed rate or
 Open bid badge, with no duplicated status or order-type badge inside the panel.
@@ -284,6 +290,86 @@ pending requests and retry timers.
 
 Production hosting must serve `index.html` for frontend routes so that direct
 links and refreshes work with browser routing.
+
+## Autopilot
+
+Select Auto pilot on Load Board to reveal the inline limits. Enable fixed-rate
+accepts, open bids, or both, and set your limits. Open bids
+require a positive maximum bid amount, initially $5,000.00. Required limits are
+prefilled with API defaults (the bid cap is a frontend default). Missing, null or
+blank values use those defaults when copying settings; clearing a numeric limit
+restores its default on leaving the field. Optional baseline metadata stays empty
+until supplied from the model configuration. Click Run once settings are valid; selecting
+Auto pilot only highlights the choice and shows the settings. Stop replaces Run
+while a run is active or its start is unconfirmed. The cards stay visible. Auto pilot
+uses live submissions only, without a mode selector. It requires the backend
+configuration `AUTOPILOT_LIVE_ENABLED=true` and a restart; disabled-live 409
+messages are displayed directly. Open-bid pricing also requires `MODEL_API_URL`.
+The frontend does not change these backend settings or start runs on mount.
+The compact settings panel sits beside current-run profit statistics on desktop
+and stacks above them on smaller screens. Statistics cover all pages of successful
+submissions for the latest live run, independently of history selection and board
+filters. The ratio is `sum(estimated submission profit) / sum(original offer prices) * 100`.
+Profit comes from saved evaluation snapshots; fixed-rate original offers come from
+those snapshots, and open-bid original offers come from retained order records.
+Missing prices/profit make the affected total and ratio unavailable. Rejected,
+skipped, cancelled and unconfirmed attempts are excluded. Submitted open-bid profit
+is conditional on winning. Totals refresh every three seconds and stay visible
+after stopping until a new run begins. Running or unconfirmed settings are disabled
+and grayed out.
+Confirmed autopilot submissions show a Load Board notification and hide the
+corresponding cards immediately, including while the order stream catches up.
+Polling deduplicates notifications and omits older results on initial page load.
+Failed, skipped and unconfirmed attempts keep their cards. Hidden orders use local
+shipment IDs so a board reset can reuse an external order ID without hiding a new
+order. Manual-action notifications remain separate.
+Run uses `POST /api/autopilot/runs` with `mode: "live"`, the configured limits,
+and a client UUID. The dispatcher makes authenticated model requests to
+`/api/v1/autopilot/live/evaluate`; the browser does not call that model endpoint
+or handle its credentials. Configure `MODEL_AUTOPILOT_LIVE_TOKEN` only on the
+backend to match the model server. Model approval and backend revalidation still
+apply to every candidate.
+
+The form exposes submission count, elapsed wall-clock duration, estimated loss
+budget, minimum cash profit/margin, maximum empty miles, and maximum bid.
+Advanced settings cover attempt spacing, input/decision age, consecutive errors
+and opt-in historical baseline advice. Settings add to existing dispatcher
+guardrails and cannot relax them. Monetary values remain decimal strings;
+bid caps require whole cents. Fixed-rate-only requests send no bid cap.
+Fleet allocation defaults to enabled. Collection can wait 0–300 wall seconds
+before pricing a batch; zero processes immediately. Advanced fleet limits set
+candidate/search budgets, expected submission time, expiry headroom and unsent
+reservation lifetime. Disabling allocation resets collection to zero. All numeric
+settings are serialized with the API's required number/integer types, including
+when copying a previous run. Historical fallback requires a baseline ID, version
+and minimum sample policy matching the model; these are not credentials.
+
+Run status, reserved submissions, remaining duration, booked/pending estimated
+loss, in-flight attempts and stop reasons refresh every three seconds through
+the run APIs. There is no autopilot WebSocket. Settings are read-only while a
+run is active; stop and create a new run to change limits.
+Losses are estimates, and positive profits do not offset
+the loss budget. The mode switch stays visible while an active run is monitored;
+click Stop or select Manual to stop. Settings remain visible and read-only until
+stopping is confirmed. A failed stop keeps the active run and Stop control visible.
+The board shows collection progress, per-type submission access and model
+authorization status. A running session with blocked submissions is labeled
+accordingly instead of claiming bidding is enabled. The access fields describe
+backend gates, not remote model approval or per-order eligibility.
+
+Run history and decisions each use 20-item pages. Details show exact bid/payout,
+selected unit, economics, dispatch checks, reasons, model snapshots and action
+links. Submitted bids are awaiting awards; follow Bid Logs and Shipments for
+subsequent outcomes. Audit history survives ordinary list-history cleanup.
+
+A client UUID makes each start idempotent. An unconfirmed start is retained in
+session storage and checked by ID after reload. Retry same start uses its
+original ID and settings; mutations are never retried automatically. The Auto pilot
+Run button cannot start another run while one is active or run discovery is unavailable.
+Polling failures preserve the previous status and stop control. Selecting Manual
+or Stop requests cancellation of new submissions; already-sent requests still
+reconcile. Leaving the page does not stop a run. Backend restarts or
+board resets stop runs without automatically resuming them.
 
 ## Analytics
 

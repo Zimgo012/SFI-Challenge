@@ -746,6 +746,87 @@ export interface HistoryCleanupParams {
   dry_run?: boolean
 }
 
+export interface AutopilotSettings {
+  enable_fixed_rate: boolean
+  enable_open_bid: boolean
+  max_orders: number
+  max_duration_seconds: number
+  max_estimated_loss_usd: DecimalString
+  min_expected_profit_usd: DecimalString
+  min_expected_margin_pct: DecimalString
+  max_deadhead_miles: DecimalString
+  max_bid_rate: DecimalString | null
+  min_action_interval_seconds: number
+  max_input_age_seconds: number
+  max_decision_age_seconds: number
+  max_consecutive_errors: number
+  allow_baseline: boolean
+  model_baseline_id: string | null
+  model_baseline_version: string | null
+  model_min_lane_samples: number | null
+  allocation_enabled: boolean
+  collection_window_seconds: number
+  allocation_max_candidates: number
+  allocation_max_nodes: number
+  allocation_max_seconds: number
+  allocation_submission_seconds: number
+  allocation_expiry_buffer_seconds: number
+  allocation_reservation_ttl_seconds: number
+}
+
+export interface StartAutopilotRequest extends AutopilotSettings {
+  run_id: string
+  mode: 'live'
+}
+
+export interface AutopilotRun {
+  run_id: string
+  status: string
+  mode: 'shadow' | 'live'
+  settings: AutopilotSettings
+  started_at_wall: string
+  deadline_at_wall: string
+  stopped_at_wall: string | null
+  stop_reason: string | null
+  orders_reserved: number
+  estimated_loss_usd: DecimalString
+  pending_estimated_loss_usd: DecimalString
+  consecutive_errors: number
+  loss_basis: 'booking_time_estimates' | 'shadow_decision_estimates'
+  seconds_remaining: number
+  inflight_attempt_ids: string[]
+  submissions_enabled: boolean
+  model_decision_mode: 'shadow' | 'live'
+  model_live_submission_supported: boolean
+  model_live_auth_configured: boolean
+  open_bid_submissions_enabled: boolean
+  fixed_rate_submissions_enabled: boolean
+  collection_plan_id: string | null
+  collection_seconds_remaining: number
+  collected_order_count: number
+}
+
+export interface AutopilotAttempt {
+  attempt_id: string
+  run_id: string
+  shipment_id: string
+  external_id: string
+  order_type: string
+  status: string
+  decision: 'ACCEPT' | 'BID' | 'SKIP' | 'REVIEW' | null
+  action_id: string | null
+  candidate_unit_id: string | null
+  bid_rate: DecimalString | null
+  model_snapshot: Record<string, unknown>
+  evaluation_snapshot: Partial<DispatchEvaluation>
+  reason_codes: string[]
+  message: string | null
+  created_at_wall: string
+  decided_at_wall: string | null
+  finished_at_wall: string | null
+  allocation_plan_id: string | null
+}
+
 export interface HistoryCleanupResult {
   resource: 'activity' | 'shipments' | 'bids'
   requested_count: number

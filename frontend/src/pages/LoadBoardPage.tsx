@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { LoadDecisionError, getLoad, submitLoadDecision, subscribeLoads } from '../api/orders'
 import type { LiveLoadsState, LoadDetail, LoadView, OrderType } from '../api/orders'
 import { getLoadOpportunities } from '../utils/load-board'
@@ -10,6 +10,14 @@ import LoadNotification from '../components/LoadNotification'
 import type { LoadFeedback } from '../utils/api-feedback'
 import { amount } from '../utils/load-format'
 import { usePageStatus } from '../context/page-status'
+import useAutopilot from '../hooks/use-autopilot'
+import AutopilotPanel from '../components/AutopilotPanel'
+import AutopilotSetup from '../components/AutopilotSetup'
+import { autopilotForm, autopilotFormErrors, autopilotPhase, defaultAutopilotForm, wallDuration, type AutopilotForm } from '../utils/autopilot'
+import AutopilotSubmissionStatus from '../components/AutopilotSubmissionStatus'
+import OfferProfitRatio from '../components/OfferProfitRatio'
+import useRunProfitStats from '../hooks/use-run-profit-stats'
+import type { RunSubmission } from '../utils/autopilot-profit'
 
 const initialState: LiveLoadsState = {
   loads: null,
@@ -19,18 +27,74 @@ const initialState: LiveLoadsState = {
 }
 
 export default function LoadBoardPage() {
+  const autopilot = useAutopilot()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [autoForm, setAutoForm] = useState<AutopilotForm>(() => autopilot.pendingStart ? autopilotForm(autopilot.pendingStart) : { ...defaultAutopilotForm })
+  const setupRef = useRef<HTMLDivElement>(null)
+  const autoOn = !!autopilot.activeRun
+  const showSettings = settingsOpen || autoOn || !!autopilot.pendingStart
+  const displayedForm = autopilot.activeRun ? autopilotForm(autopilot.activeRun.settings)
+    : autopilot.pendingStart ? autopilotForm(autopilot.pendingStart) : autoForm
+  const validAutoSettings = !Object.keys(autopilotFormErrors(autoForm)).length
   const [orderType, setOrderType] = useState<OrderType | 'all'>('all')
   const [{ loads: streamedLoads, connection, error }, setStream] = useState(initialState)
-  usePageStatus(connection, error)
-  const loads = streamedLoads === null ? null : getLoadOpportunities(streamedLoads, orderType)
+  usePageStatus(connection, error ?? (showSettings || historyOpen ? autopilot.error : null))
   const [selected, setSelected] = useState<{ load: LoadView; bid: boolean } | null>(null)
   const [decisions, setDecisions] = useState<Record<string, 'submitting' | 'sent' | 'uncertain'>>({})
   const lockedOrders = useRef(new Set<string>())
   const [feedback, setFeedback] = useState<LoadFeedback | null>(null)
+  const [autoFeedback, setAutoFeedback] = useState<LoadFeedback | null>(null)
+  const currentRun = autopilot.currentRun?.mode === 'live' && (!autopilot.pendingStart || autopilot.pendingStart.run_id === autopilot.currentRun.run_id) ? autopilot.currentRun : null
+  const onAutoSubmitted = useCallback((items: RunSubmission[]) => {
+    const first = items[0]
+    const bids = items.filter(item => item.orderType === 'open_bid').length
+    const accepts = items.length - bids
+    const summary = [bids ? `submitted ${bids} bid${bids === 1 ? '' : 's'}` : '', accepts ? `accepted ${accepts} offer${accepts === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ')
+    setAutoFeedback({
+      id: first.externalId,
+      title: items.length > 1 ? 'Autopilot submissions confirmed' : bids ? 'Autopilot bid submitted' : 'Autopilot offer accepted',
+      tone: 'success',
+      message: items.length > 1
+        ? `Autopilot ${summary}. These orders have been removed from the Load Board.`
+        : bids ? `Autopilot submitted a ${first.rate ? `${amount(first.rate)} ` : ''}bid for ${first.externalId}. Track its result in Bid Logs; a booking is confirmed only if you win.`
+          : `Autopilot accepted ${first.externalId}${first.rate ? ` for ${amount(first.rate)}` : ''}. Follow this booking in Shipments.`,
+      details: items.map(item => `${item.externalId}: ${item.orderType === 'open_bid' ? 'Bid submitted' : 'Offer accepted'}${item.rate ? ` · ${amount(item.rate)}` : ''}`),
+      suggestions: bids ? ['Submitted bids await an award. Track results in Bid Logs.'] : ['Track accepted bookings in Shipments.'],
+    })
+    setSelected(current => current && items.some(item => item.shipmentId === current.load.shipment_id) ? null : current)
+  }, [])
+  const runStats = useRunProfitStats(currentRun?.run_id ?? null, onAutoSubmitted)
+  const loads = streamedLoads === null ? null : getLoadOpportunities(streamedLoads, orderType).filter(load => !runStats.submittedOrders.has(load.shipment_id))
   const selectedLoad = selected ? streamedLoads?.find((load) => load.external_id === selected.load.external_id) ?? selected.load : null
+
+  function runAutopilot() {
+    if (autopilot.mutation || autoOn) return
+    setSettingsOpen(true)
+    setSelected(null)
+    if (!autopilot.pendingStart && !validAutoSettings) {
+      requestAnimationFrame(() => setupRef.current?.querySelector<HTMLInputElement>('[aria-invalid="true"]')?.focus())
+      return
+    }
+    if (!autopilot.verified) { autopilot.refresh(); return }
+    void autopilot.start(autoForm)
+  }
+
+  function selectManual() {
+    if (autopilot.mutation) return
+    setSettingsOpen(false)
+    const runId = autopilot.activeRun?.run_id ?? autopilot.pendingStart?.run_id
+    if (runId) void autopilot.stop(runId)
+  }
+
+  function stopAutopilot() {
+    const runId = autopilot.activeRun?.run_id ?? autopilot.pendingStart?.run_id
+    if (!autopilot.mutation && runId) void autopilot.stop(runId)
+  }
 
   function canSubmit(load: LoadView) {
     return connection === 'live' && load.status === 'open'
+      && !runStats.submittedOrders.has(load.shipment_id)
       && !load.board_missing_at && ['open_bid', 'fixed_rate'].includes(load.order_type)
       && load.seconds_remaining !== 0 && !decisions[load.external_id]
       && !!streamedLoads?.some((item) => item.external_id === load.external_id && item.status === 'open')
@@ -121,7 +185,7 @@ export default function LoadBoardPage() {
 
   return (
     <PageSection title="Load Board" description="Browse open fixed-rate and open-bid opportunities. Orders update automatically.">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className={`flex flex-wrap items-center justify-between gap-4 ${autoOn || autopilot.pendingStart ? 'sticky top-40 z-10 rounded-xl border border-base-300 bg-base-100 p-3 shadow-sm lg:top-28' : ''}`}>
         <label className="flex items-center gap-2 text-sm">
           Order type
           <select className="select select-sm w-44" value={orderType} onChange={(event) => setOrderType(event.target.value as OrderType | 'all')}>
@@ -130,6 +194,26 @@ export default function LoadBoardPage() {
             <option value="open_bid">Open bid</option>
           </select>
         </label>
+        {autopilot.activeRun && <p role="status" className="text-xs text-base-content/65">{autopilotPhase(autopilot.activeRun)} · {autopilot.activeRun.orders_reserved}/{autopilot.activeRun.settings.max_orders} actions · {wallDuration(autopilot.activeRun.seconds_remaining)} left</p>}
+        {showSettings && !autoOn && !autopilot.pendingStart && <p role="status" className="text-xs text-base-content/60">{autopilot.mutation === 'start' ? 'Starting autopilot…' : 'Autopilot idle'}</p>}
+        <div role="group" aria-label="Load board mode" className="ml-auto flex gap-1 rounded-lg border border-base-300 bg-base-100 p-1">
+          <button type="button" aria-pressed={!showSettings} disabled={!!autopilot.mutation} className={`btn btn-sm border-0 shadow-none ${!showSettings ? 'btn-primary' : 'btn-ghost'}`} onClick={selectManual}>Manual</button>
+          <button type="button" aria-pressed={showSettings} aria-controls="load-board-autopilot-settings" aria-expanded={showSettings} disabled={!!autopilot.mutation} className={`btn btn-sm border-0 shadow-none ${showSettings ? 'btn-primary' : 'btn-ghost'}`} onClick={() => { setSettingsOpen(true); setSelected(null) }}>Auto pilot</button>
+        </div>
+        {showSettings && (autoOn || autopilot.pendingStart ? <button type="button" className="btn btn-error btn-sm" disabled={!!autopilot.mutation} onClick={stopAutopilot}>{autopilot.mutation === 'stop' ? 'Stopping…' : 'Stop'}</button> : <button type="button" className="btn btn-success btn-sm" disabled={!!autopilot.mutation || !autopilot.verified || !validAutoSettings} onClick={runAutopilot}>{autopilot.mutation === 'start' ? 'Starting…' : 'Run'}</button>)}
+      </div>
+
+      {autopilot.mutationError && <p role="alert" className="alert alert-error text-sm">{autopilot.mutationError}</p>}
+      {(showSettings || historyOpen) && autopilot.error && <p role="alert" className="alert alert-warning text-sm">{autopilot.error} Updates retry automatically.</p>}
+      {autopilot.message && <p role="status" className="text-sm text-success">{autopilot.message}</p>}
+      {autopilot.pendingStart && <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning/30 bg-warning/5 p-3"><p className="text-xs">Auto pilot start is unconfirmed. Check status before retrying the same request or stopping.</p><div className="flex gap-2"><button type="button" className="btn btn-ghost btn-xs" disabled={!!autopilot.mutation} onClick={() => { autopilot.selectRun(autopilot.pendingStart!.run_id); autopilot.refresh() }}>Check status</button><button type="button" className="btn btn-primary btn-xs" disabled={!!autopilot.mutation || !autopilot.verified || autoOn || autopilot.pendingStart.mode !== 'live'} onClick={runAutopilot}>Retry run</button></div></div>}
+      <div id="load-board-autopilot-settings" ref={setupRef} hidden={!showSettings}>
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
+          <AutopilotSetup controller={autopilot} form={displayedForm} onChange={setAutoForm} onRun={runAutopilot} />
+          <OfferProfitRatio run={currentRun} stats={runStats} />
+        </div>
+        {autopilot.activeRun && <div className="mt-3"><AutopilotSubmissionStatus run={autopilot.activeRun} /></div>}
+        {showSettings && !autoOn && !autopilot.pendingStart && !autopilot.verified && <p role="status" className="mt-2 text-xs text-warning">Checking current run status. Run will be available once the backend is connected and settings are valid.</p>}
       </div>
 
       {error && (
@@ -141,9 +225,10 @@ export default function LoadBoardPage() {
         </div>
       )}
 
-      {feedback && !selected && (
-        <div className="fixed inset-x-4 top-24 z-30 mx-auto max-h-[60dvh] max-w-lg overflow-y-auto rounded-xl shadow-xl sm:right-6 sm:left-auto">
-          <LoadNotification feedback={feedback} onDismiss={() => setFeedback(null)} onCheckStatus={decisions[feedback.id] === 'uncertain' ? () => void checkStatus(feedback.id) : undefined} />
+      {!selected && (autoFeedback || feedback) && (
+        <div className="fixed inset-x-4 top-24 z-30 mx-auto max-h-[60dvh] max-w-lg space-y-2 overflow-y-auto rounded-xl shadow-xl sm:right-6 sm:left-auto">
+          {autoFeedback && <LoadNotification feedback={autoFeedback} onDismiss={() => setAutoFeedback(null)} />}
+          {feedback && !selected && <LoadNotification feedback={feedback} onDismiss={() => setFeedback(null)} onCheckStatus={decisions[feedback.id] === 'uncertain' ? () => void checkStatus(feedback.id) : undefined} />}
         </div>
       )}
 
@@ -188,12 +273,18 @@ export default function LoadBoardPage() {
           pending={decisions[selectedLoad.external_id] === 'submitting'}
           message={null}
           notification={feedback?.id === selectedLoad.external_id ? feedback : undefined}
+          autopilotNotification={autoFeedback ?? undefined}
+          onDismissAutopilotNotification={() => setAutoFeedback(null)}
           onCheckStatus={decisions[selectedLoad.external_id] === 'uncertain' ? () => void checkStatus(selectedLoad.external_id) : undefined}
           onClose={() => setSelected(null)}
           onSubmitBid={(rate) => decide(selectedLoad, 'bid', rate)}
           onAccept={() => decide(selectedLoad, 'accept')}
         />
       )}
+      <details className="rounded-xl border border-base-300 bg-base-100 p-4" onToggle={event => setHistoryOpen(event.currentTarget.open)}>
+        <summary className="cursor-pointer text-sm font-semibold">Autopilot history & decisions</summary>
+        <div className="mt-4"><AutopilotPanel controller={autopilot} /></div>
+      </details>
     </PageSection>
   )
 }

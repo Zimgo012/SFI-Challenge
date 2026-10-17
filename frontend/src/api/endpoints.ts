@@ -14,6 +14,12 @@ export const endpoints = {
     bid: (externalId: string) => `/api/loads/${id(externalId)}/bid`,
   },
   bids: '/api/bids',
+  autopilot: {
+    runs: '/api/autopilot/runs',
+    run: (runId: string) => `/api/autopilot/runs/${id(runId)}`,
+    stop: (runId: string) => `/api/autopilot/runs/${id(runId)}/stop`,
+    attempts: (runId: string) => `/api/autopilot/runs/${id(runId)}/attempts`,
+  },
   oldestBids: '/api/bids/oldest',
   terminals: {
     list: '/api/terminals',
