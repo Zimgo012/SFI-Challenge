@@ -19,6 +19,8 @@ from sfi_model.api.autopilot import (
     AutopilotResponse,
     AutopilotShipment,
     BackendContext,
+    ClockEvaluation,
+    SimulationClock,
     StrictInput,
     utc_now,
 )
@@ -30,6 +32,7 @@ from sfi_model.api.pricing import (
 )
 from sfi_model.api.telemetry import current_log, write_event
 from sfi_model.decision.batch import select_assignments
+from sfi_model.decision.clock import DecisionClock
 from sfi_model.decision.engine import ENGINE_SHA256, evaluate, fingerprint
 
 ALLOCATOR_SHA256 = hashlib.sha256(
@@ -76,6 +79,7 @@ class BatchRequest(StrictInput):
     policy: AutopilotPolicy
     control: AutopilotControl = Field(default_factory=AutopilotControl)
     analysis_timeout_seconds: float = Field(default=10, gt=0, le=60)
+    clock: SimulationClock | None = Field(default=None, exclude_if=lambda v: v is None)
 
     @model_validator(mode="after")
     def consistent_snapshot(self):
@@ -201,6 +205,7 @@ class BatchResponse(BaseModel):
     context_fingerprint: str
     evaluated_at: datetime
     valid_until: datetime | None
+    clock: ClockEvaluation | None = None
     decision: Literal["BID", "SKIP"]
     analysis_status: Literal["complete", "partial", "unavailable"]
     batch_statistics: BatchStatistics
@@ -236,14 +241,28 @@ def _finite(value):
     return result if math.isfinite(result) else None
 
 
-def _available_offer(item, now, policy):
+def _available_offer(item, now, policy, clock=None):
     context = item.backend_context
+    state = DecisionClock(clock, now)
+    domain_now = state.simulated_now if clock is not None else now
+    if state.issues or domain_now is None:
+        return False
+    if clock is not None and (
+        context is None
+        or context.clock_revision != clock["revision"]
+        or context.clock_id != clock["clock_id"]
+    ):
+        return False
+    if clock is not None and context.order_observed_at is not None:
+        state.input_deadline(context.order_observed_at)
+        if state.issues:
+            return False
     return (
         item.offered_rate_dollars is not None
         and context is not None
         and context.checks.order_open is True
         and context.order_expires_at is not None
-        and context.order_expires_at > now
+        and context.order_expires_at > domain_now
         and context.order_observed_at is not None
         and 0
         <= (now - context.order_observed_at).total_seconds()
@@ -251,12 +270,12 @@ def _available_offer(item, now, policy):
     )
 
 
-def _statistics(first, predictions, now, policy):
+def _statistics(first, predictions, now, policy, clock=None):
     offers, miles, amounts, matched_offers, model_rpms = [], [], [], [], []
     with localcontext() as context:
         context.prec = 400
         for shipment_id, item in first.items():
-            if not _available_offer(item, now, policy):
+            if not _available_offer(item, now, policy, clock):
                 continue
             distance = Decimal(str(item.shipment.distance_miles))
             amount = Decimal(str(item.offered_rate_dollars))
@@ -290,7 +309,7 @@ def _statistics(first, predictions, now, policy):
         )
 
 
-def _comparison(item, original, response, statistics, now, policy):
+def _comparison(item, original, response, statistics, now, policy, clock=None):
     advice = original.advisory
     supported = isinstance(advice, (BidPredictionResponse, BaselineFallbackResponse))
     with localcontext() as context:
@@ -316,7 +335,7 @@ def _comparison(item, original, response, statistics, now, policy):
             offered_rate_dollars=item.offered_rate_dollars,
             offered_rpm=_finite(rpm),
             included_in_batch_average=bool(
-                _available_offer(item, now, policy) and _finite(rpm) is not None
+                _available_offer(item, now, policy, clock) and _finite(rpm) is not None
             ),
             batch_average_offered_rpm=mean,
             difference_from_batch_average_rpm=_finite(rpm - Decimal(str(mean)))
@@ -348,6 +367,7 @@ def create_batch_endpoint(evaluate_autopilot):
                 backend_context=item.backend_context,
                 policy=body.policy,
                 control=body.control,
+                clock=body.clock,
             )
 
         # Pricing depends on shipment features, not the selected truck. Predict
@@ -378,21 +398,24 @@ def create_batch_endpoint(evaluate_autopilot):
         except TimeoutError:
             predictions = None
         now = utc_now()
+        clock_snapshot = body.clock.model_dump() if body.clock else None
+        clock_state = DecisionClock(clock_snapshot, now)
         by_shipment = dict(zip(first, predictions, strict=True)) if predictions is not None else {}
         # A missing context on one truck pair must not hide an otherwise known
         # current offer for the same order from batch price statistics.
         for item in body.opportunities:
-            if _available_offer(item, now, body.policy) and not _available_offer(
-                first[item.shipment_id], now, body.policy
+            if _available_offer(item, now, body.policy, clock_snapshot) and not _available_offer(
+                first[item.shipment_id], now, body.policy, clock_snapshot
             ):
                 first[item.shipment_id] = item
-        statistics = _statistics(first, by_shipment, now, body.policy)
+        statistics = _statistics(first, by_shipment, now, body.policy, clock_snapshot)
         base = dict(
             batch_id=body.batch_id,
             analysis_id=uuid4().hex,
             fleet_snapshot_version=body.fleet_snapshot_version,
             context_fingerprint=fingerprint(body.model_dump()),
             evaluated_at=now,
+            clock=clock_state.describe(),
             batch_statistics=statistics,
             strategy=body.strategy,
             allocation_scope="single_best_order"
@@ -482,7 +505,9 @@ def create_batch_endpoint(evaluate_autopilot):
                 live_blockers=original.live_blockers,
             )
             evaluations.append(response)
-            comparisons.append(_comparison(item, original, response, statistics, now, body.policy))
+            comparisons.append(
+                _comparison(item, original, response, statistics, now, body.policy, clock_snapshot)
+            )
             if response.decision == "BID":
                 indices.append(len(evaluations) - 1)
                 with localcontext() as context:
@@ -565,7 +590,12 @@ def create_batch_endpoint(evaluate_autopilot):
                 },
             )
         return BatchResponse(
-            **base,
+            **{
+                **base,
+                "clock": clock_state.describe(
+                    min(row.valid_until for row in chosen) if chosen else None
+                ),
+            },
             valid_until=min(row.valid_until for row in chosen) if chosen else None,
             decision="BID" if chosen else "SKIP",
             analysis_status="partial" if any(review_flags) else "complete",

@@ -57,6 +57,26 @@ class InputAgePolicy(StrictInput):
     order_status: float = Field(gt=0)
 
 
+class SimulationClock(TimestampInput):
+    clock_id: str = Field(pattern=r"^[A-Za-z0-9._-]{1,128}$")
+    revision: str = Field(pattern=r"^[A-Za-z0-9._-]{1,128}$")
+    simulated_at: AwareDatetime
+    observed_at: AwareDatetime
+    speed: float = Field(ge=0)
+    max_snapshot_age_seconds: float = Field(gt=0)
+    max_simulated_input_age_seconds: float = Field(gt=0)
+
+
+class ClockEvaluation(BaseModel):
+    domain: Literal["wall", "simulation"]
+    clock_id: str | None
+    revision: str | None
+    speed: float
+    evaluated_simulated_at: datetime | None
+    valid_until_simulated_at: datetime | None
+    rules_sha256: str
+
+
 class AutopilotPolicy(StrictInput):
     policy_version: str = Field(pattern=r"^[A-Za-z0-9._-]{1,64}$")
     currency: Literal["USD"] = "USD"
@@ -103,6 +123,11 @@ class BackendContext(TimestampInput):
     unit_observed_at: AwareDatetime | None = None
     order_observed_at: AwareDatetime | None = None
     order_expires_at: AwareDatetime | None = None
+    clock_id: str | None = Field(default=None, min_length=1, exclude_if=lambda v: v is None)
+    clock_revision: str | None = Field(default=None, min_length=1, exclude_if=lambda v: v is None)
+    operational_expires_at: AwareDatetime | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
     checks: OperationalChecks = Field(default_factory=OperationalChecks)
 
 
@@ -119,6 +144,7 @@ class AutopilotRequest(StrictInput):
     backend_context: BackendContext | None = None
     policy: AutopilotPolicy | None = None
     control: AutopilotControl = Field(default_factory=AutopilotControl)
+    clock: SimulationClock | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 class DecisionReason(BaseModel):
@@ -143,6 +169,7 @@ class AutopilotResponse(BaseModel):
     context_fingerprint: str
     evaluated_at: datetime
     valid_until: datetime | None
+    clock: ClockEvaluation | None = None
     candidate_bid_dollars: float | None
     candidate_bid_rpm: float | None
     loaded_cost_dollars: float | None

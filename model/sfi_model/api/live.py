@@ -89,7 +89,7 @@ class LiveAuthorization:
     bundle_id: str | None
 
 
-def check_live_gate(credentials, policy, manifest, order_types=()):
+def check_live_gate(credentials, policy, manifest, order_types=(), clock=None):
     """Server controls authorize preflight eligibility without asserting model accuracy."""
     if os.getenv("SFI_AUTOPILOT_LIVE_ENABLED", "false") != "true":
         raise blocked("LIVE_DISABLED")
@@ -110,6 +110,13 @@ def check_live_gate(credentials, policy, manifest, order_types=()):
         raise blocked("LIVE_CONFIGURATION_INVALID")
     if not set(order_types).issubset(allowed):
         raise blocked("LIVE_ORDER_TYPE_DISABLED")
+    clock_mode = os.getenv("SFI_AUTOPILOT_CLOCK_MODE", "either")
+    if clock_mode not in {"wall", "simulation", "either"}:
+        raise blocked("LIVE_CONFIGURATION_INVALID")
+    if (clock_mode == "simulation" and clock is None) or (
+        clock_mode == "wall" and clock is not None
+    ):
+        raise blocked("LIVE_CLOCK_MODE_MISMATCH")
     manifest = manifest if isinstance(manifest, dict) else {}
     version, bundle_id = manifest.get("model_version"), manifest.get("bundle_id")
     # This secret-derived signature stays in memory; never return or log it.
@@ -117,6 +124,7 @@ def check_live_gate(credentials, policy, manifest, order_types=()):
         {
             "token_sha256": hashlib.sha256(token.encode()).hexdigest(),
             "order_types": sorted(allowed),
+            "clock_mode": clock_mode,
             "model_version": version,
             "bundle_id": bundle_id,
             "policy": policy.model_dump() if policy is not None else None,
@@ -129,13 +137,13 @@ def install_live_routes(router, evaluate_autopilot, analyze_batch, get_manifest)
     bearer = HTTPBearer(auto_error=False)
     auth_type = Annotated[HTTPAuthorizationCredentials | None, Security(bearer)]
 
-    async def gate(credentials, policy, order_types):
+    async def gate(credentials, policy, order_types, clock):
         return await asyncio.to_thread(
-            check_live_gate, credentials, policy, get_manifest(), order_types
+            check_live_gate, credentials, policy, get_manifest(), order_types, clock
         )
 
-    async def recheck(credentials, policy, original, order_types):
-        current = await gate(credentials, policy, order_types)
+    async def recheck(credentials, policy, original, order_types, clock):
+        current = await gate(credentials, policy, order_types, clock)
         if not hmac.compare_digest(current.signature, original.signature):
             raise blocked("LIVE_AUTHORIZATION_CHANGED")
         return current
@@ -191,10 +199,10 @@ def install_live_routes(router, evaluate_autopilot, analyze_batch, get_manifest)
     @router.post("/autopilot/live/evaluate", response_model=LiveSingleResponse, responses=errors)
     async def evaluate_live(body: LiveSingleRequest, credentials: auth_type):
         order_types = {body.shipment.order_type}
-        original = await gate(credentials, body.policy, order_types)
+        original = await gate(credentials, body.policy, order_types, body.clock)
         inputs = AutopilotRequest.model_validate(body.model_dump())
         response = await evaluate_autopilot(inputs)
-        authorization = await recheck(credentials, body.policy, original, order_types)
+        authorization = await recheck(credentials, body.policy, original, order_types, body.clock)
         if response.decision == "BID" and (
             response.valid_until is None or response.valid_until <= utc_now()
         ):
@@ -207,10 +215,10 @@ def install_live_routes(router, evaluate_autopilot, analyze_batch, get_manifest)
     )
     async def analyze_live(body: LiveBatchRequest, credentials: auth_type):
         order_types = {item.shipment.order_type for item in body.opportunities}
-        original = await gate(credentials, body.policy, order_types)
+        original = await gate(credentials, body.policy, order_types, body.clock)
         inputs = BatchRequest.model_validate(body.model_dump(by_alias=True))
         response = await analyze_batch(inputs)
-        authorization = await recheck(credentials, body.policy, original, order_types)
+        authorization = await recheck(credentials, body.policy, original, order_types, body.clock)
         if response.selected_count and (
             response.valid_until is None or response.valid_until <= utc_now()
         ):

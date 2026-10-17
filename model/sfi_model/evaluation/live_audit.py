@@ -118,6 +118,16 @@ def audit_live(export: LiveAuditExport) -> dict:
             request.strategy,
         ):
             decision_issue("BATCH_IDENTITY_MISMATCH")
+        if request.clock is not None:
+            expected_clock = (request.clock.clock_id, request.clock.revision, request.clock.speed)
+            captured_clocks = [response.clock, *[r.evaluation.clock for r in response.evaluations]]
+            if any(
+                clock is None
+                or clock.domain != "simulation"
+                or (clock.clock_id, clock.revision, clock.speed) != expected_clock
+                for clock in captured_clocks
+            ):
+                decision_issue("CLOCK_IDENTITY_MISMATCH")
         requested = {(o.shipment_id, o.unit_id) for o in request.opportunities}
         returned = [(r.evaluation.shipment_id, r.evaluation.unit_id) for r in response.evaluations]
         if len(returned) != len(set(returned)) or set(returned) != requested:

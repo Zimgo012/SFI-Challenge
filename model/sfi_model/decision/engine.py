@@ -7,6 +7,8 @@ from datetime import datetime, timedelta, timezone
 from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, localcontext
 from pathlib import Path
 
+from sfi_model.decision.clock import DecisionClock
+
 ENGINE_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 CHECKS = {
@@ -65,6 +67,10 @@ def evaluate(
             return datetime.max.replace(tzinfo=timezone.utc)
 
     policy, context = request.get("policy"), request.get("backend_context")
+    clock = DecisionClock(request.get("clock"), now)
+    clock_deadline = clock.snapshot_deadline()
+    if clock_deadline is not None:
+        expiry.append(clock_deadline)
     fixed_offer = (
         allow_fixed_rate
         and request["shipment"]["order_type"] == "fixed_rate"
@@ -99,6 +105,28 @@ def evaluate(
             if context[key] != request[key]:
                 reason("CONTEXT_MISMATCH", field=f"backend_context.{key}")
         checks = context.get("checks") or {}
+        if clock.snapshot is not None:
+            if context.get("clock_id") != clock.snapshot["clock_id"]:
+                reason("CLOCK_ID_MISMATCH", field="backend_context.clock_id")
+            if context.get("clock_revision") != clock.snapshot["revision"]:
+                reason("CLOCK_REVISION_MISMATCH", field="backend_context.clock_revision")
+            operational_end = context.get("operational_expires_at")
+            if operational_end is None:
+                reason(
+                    "OPERATIONAL_EXPIRATION_UNKNOWN", field="backend_context.operational_expires_at"
+                )
+            elif clock.simulated_now is not None:
+                if operational_end <= clock.simulated_now:
+                    reason(
+                        "OPERATIONAL_WINDOW_EXPIRED", field="backend_context.operational_expires_at"
+                    )
+                limit = clock.expiry(operational_end)
+                if limit is not None:
+                    expiry.append(limit)
+        elif context.get("operational_expires_at") is not None:
+            if context["operational_expires_at"] <= now:
+                reason("OPERATIONAL_WINDOW_EXPIRED", field="backend_context.operational_expires_at")
+            expiry.append(context["operational_expires_at"])
         for name, code in CHECKS.items():
             if checks.get(name) is False:
                 reason(code, "SKIP", f"backend_context.checks.{name}")
@@ -118,6 +146,9 @@ def evaluate(
                 reason("TIMESTAMP_MISSING", field=source)
             else:
                 age = (now - stamp).total_seconds()
+                simulation_limit = clock.input_deadline(stamp)
+                if simulation_limit is not None:
+                    expiry.append(simulation_limit)
                 if age < 0:
                     reason("FUTURE_INPUT_TIMESTAMP", field=source)
                 elif policy is not None:
@@ -132,10 +163,14 @@ def evaluate(
         expires_at = context.get("order_expires_at")
         if expires_at is None:
             reason("ORDER_EXPIRATION_UNKNOWN", field="backend_context.order_expires_at")
-        elif expires_at <= now:
+        elif (clock.snapshot is None or clock.simulated_now is not None) and expires_at <= (
+            clock.simulated_now if clock.snapshot is not None else now
+        ):
             reason("ORDER_EXPIRED", "SKIP", "backend_context.order_expires_at")
         else:
-            expiry.append(expires_at)
+            limit = clock.expiry(expires_at)
+            if limit is not None:
+                expiry.append(limit)
         deadhead = context.get("deadhead_miles")
         if deadhead is None:
             reason("DEADHEAD_MISSING", field="backend_context.deadhead_miles")
@@ -248,6 +283,10 @@ def evaluate(
                         reason("REFERENCE_DEVIATION_EXCEEDED", field="advisory.baseline_reference")
     if candidate is None and prediction_error is None and not reasons:
         reason("PREDICTION_UNAVAILABLE", field="advisory")
+    for code in dict.fromkeys(clock.issues):
+        reason(code, field="clock")
+    if clock.snapshot is not None and expiry and min(expiry) <= now and not reasons:
+        reason("DECISION_WINDOW_EXPIRED", field="valid_until")
     decision = (
         "SKIP"
         if any(item["severity"] == "SKIP" for item in reasons)
@@ -257,13 +296,15 @@ def evaluate(
     )
     if decision == "BID":
         expiry.append(deadline(now, policy["max_decision_age_seconds"]))
+    valid_until = min(expiry) if decision == "BID" else None
     return {
         "decision": decision,
         "reason_codes": list(dict.fromkeys(item["code"] for item in reasons))
         or ["ALL_CHECKS_PASSED"],
         "reasons": reasons,
         "evaluated_at": now,
-        "valid_until": min(expiry) if decision == "BID" else None,
+        "valid_until": valid_until,
+        "clock": clock.describe(valid_until),
         "context_fingerprint": fingerprint(request),
         **values,
     }
