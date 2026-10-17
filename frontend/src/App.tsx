@@ -1,34 +1,32 @@
-import { useState } from 'react'
+import { Navigate, Route, Routes } from 'react-router'
+import AppLayout from './layouts/AppLayout'
+import DashboardPage from './pages/DashboardPage'
+import AnalyticsPage from './pages/AnalyticsPage'
+import LoadBoardPage from './pages/LoadBoardPage'
+import BidLogsPage from './pages/BidLogsPage'
+import TerminalsPage from './pages/TerminalsPage'
+import FleetPage from './pages/FleetPage'
+import ShipmentsPage from './pages/ShipmentsPage'
+import ActivityPage from './pages/ActivityPage'
+import SettingsPage from './pages/SettingsPage'
+import NotFoundPage from './pages/NotFoundPage'
 
 export default function App() {
-  const [count, setCount] = useState(0)
-
   return (
-    <main className="flex min-h-screen items-center justify-center bg-base-200 p-6">
-      <section className="card w-full max-w-xl bg-base-100 shadow-xl" aria-labelledby="welcome-title">
-        <div className="card-body gap-6">
-          <div className="badge badge-primary badge-outline">SFI Challenge</div>
-          <div className="space-y-3">
-            <h1 id="welcome-title" className="text-3xl font-bold">Ready to build.</h1>
-            <p className="text-base-content/70">
-              React, Vite, Tailwind CSS, and daisyUI are set up and ready for your next idea.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2" aria-label="Project technologies">
-            {['React', 'Vite', 'Tailwind CSS', 'daisyUI'].map((technology) => (
-              <span key={technology} className="badge badge-soft">{technology}</span>
-            ))}
-          </div>
-          <div className="card-actions">
-            <button className="btn btn-primary" onClick={() => setCount((current) => current + 1)}>
-              Clicked {count} {count === 1 ? 'time' : 'times'}
-            </button>
-          </div>
-          <p className="text-sm text-base-content/60">
-            Edit <code className="rounded bg-base-200 px-1.5 py-0.5">src/App.tsx</code> to get started.
-          </p>
-        </div>
-      </section>
-    </main>
+    <Routes>
+      <Route element={<AppLayout />}>
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="analytics" element={<AnalyticsPage />} />
+        <Route path="loads" element={<LoadBoardPage />} />
+        <Route path="bids" element={<BidLogsPage />} />
+        <Route path="terminals" element={<TerminalsPage />} />
+        <Route path="fleet" element={<FleetPage />} />
+        <Route path="shipments" element={<ShipmentsPage />} />
+        <Route path="activity" element={<ActivityPage />} />
+        <Route path="settings" element={<SettingsPage />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
+    </Routes>
   )
 }

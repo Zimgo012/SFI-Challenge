@@ -10,3 +10,4 @@ dist-ssr/
 .idea/
 .vscode/*
 !.vscode/extensions.json
+/requirements
