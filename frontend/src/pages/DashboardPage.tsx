@@ -15,10 +15,10 @@ const initialState: LiveOverviewState = {
 
 const TerminalCapacityMap = lazy(() => import('../components/TerminalCapacityMap'))
 
-function Panel({ title, to, caption, children }: { title: string; to: string; caption: string; children: ReactNode }) {
+function Panel({ title, to, caption, children }: { title: string; to: string; caption?: string; children: ReactNode }) {
   return <section className="min-w-0 overflow-hidden rounded-xl border border-base-300 bg-base-100">
     <header className="flex items-start justify-between gap-3 border-b border-base-300 p-5">
-      <div><h2 className="font-semibold">{title}</h2><p className="mt-1 text-xs text-base-content/60">{caption}</p></div>
+      <div><h2 className="font-semibold">{title}</h2>{caption && <p className="mt-1 text-xs text-base-content/60">{caption}</p>}</div>
       <Link to={to} className="link link-primary shrink-0 text-xs no-underline hover:underline" aria-label={`View all ${title.toLowerCase()}`}>View all →</Link>
     </header>
     {children}
@@ -59,26 +59,29 @@ export default function DashboardPage() {
       </div>
       {error && <div role="alert" className="alert alert-warning text-sm"><div><p>{error}</p><p className="mt-1 text-xs">{overview || loads ? 'Showing the latest available data. ' : ''}Updates retry automatically.</p></div></div>}
       {boardDelayed && !error && <p role="status" className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm">The dispatcher is reconnecting to the board. Showing the last synced operations data. Last board sync: {timestamp(system?.last_sync_at ?? null)}.</p>}
-      <div aria-busy={loading} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div aria-busy={loading} className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+      <div aria-label="Operations summary" className="grid grid-cols-2 gap-3">
         {[
-          { title: 'Live opportunities', value: summary.openCount, to: '/loads', note: 'Open fixed-rate & open-bid orders' },
-          { title: 'Available trucks', value: summary.availableUnits, to: '/terminals', note: summary.totalUnits === null ? 'Waiting for terminal capacity' : `Across ${count(summary.totalUnits)} trucks in the fleet` },
-          { title: 'Pending bids', value: summary.pendingCount, to: '/bids', note: 'Submitted bids awaiting an outcome' },
-          { title: 'Active shipments', value: summary.activeCount, to: '/shipments', note: 'Confirmed bookings & shipments in transit' },
-        ].map((item) => <Link key={item.to} to={item.to} className="group rounded-xl border border-base-300 bg-base-100 p-5 transition-colors hover:border-primary/40 focus-visible:outline-2 focus-visible:outline-primary">
-          <div className="flex items-center justify-between gap-2"><h2 className="text-sm text-base-content/65">{item.title}</h2><span aria-hidden="true" className="text-primary/50 group-hover:text-primary">↗</span></div>
-          <p className="my-3 text-3xl font-bold tabular-nums text-primary">{count(item.value)}</p>
-          <p className="text-xs text-base-content/55">{item.note}</p>
+          { title: 'Live opportunities', value: summary.openCount, to: '/loads', note: 'Fixed rate & open bid' },
+          { title: 'Available trucks', value: summary.availableUnits, to: '/terminals', note: summary.totalUnits === null ? 'Capacity pending' : `${count(summary.totalUnits)} total in fleet` },
+          { title: 'Pending bids', value: summary.pendingCount, to: '/bids', note: 'Awaiting results' },
+          { title: 'Active shipments', value: summary.activeCount, to: '/shipments', note: 'Booked & in transit' },
+        ].map((item) => <Link key={item.to} to={item.to} className="group min-w-0 rounded-xl border border-base-300 bg-base-100 p-3 transition-colors hover:border-primary/40 focus-visible:outline-2 focus-visible:outline-primary sm:px-4">
+          <div className="flex items-center justify-between gap-2"><h2 className="text-xs font-medium text-base-content/65">{item.title}</h2><span aria-hidden="true" className="text-xs text-primary/50 group-hover:text-primary">↗</span></div>
+          <p className="mt-1.5 break-words text-2xl font-bold tabular-nums text-primary">{count(item.value)}</p>
+          <p className="mt-1 text-[11px] text-base-content/55">{item.note}</p>
         </Link>)}
       </div>
 
-      <section aria-labelledby="dashboard-profit-title" className="rounded-xl border border-primary/20 bg-primary/5 p-5">
-        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2"><h2 id="dashboard-profit-title" className="font-semibold">Estimated profit</h2><p className="text-xs text-base-content/55">Saved booking estimates · USD · Not realized earnings</p></div>
-        <div className="grid gap-5 sm:grid-cols-2">
-          <div><p className="text-xs text-base-content/60">Confirmed bookings</p><p className={`mt-2 text-2xl font-bold tabular-nums ${profit && Number(profit.confirmed_estimated_profit) < 0 ? 'text-error' : 'text-primary'}`}>{amount(profit?.confirmed_estimated_profit ?? null)}</p><p className="mt-1 text-xs text-base-content/60">{profit ? `${profit.confirmed_estimated_count} known estimates · ${profit.confirmed_unknown_count} unavailable` : 'Waiting for saved booking estimates'}</p></div>
-          <div className="border-t border-primary/15 pt-4 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-5"><p className="text-xs text-base-content/60">Pending bids · Conditional</p><p className={`mt-2 text-2xl font-bold tabular-nums ${profit && Number(profit.conditional_pending_bid_profit) < 0 ? 'text-error' : 'text-base-content'}`}>{amount(profit?.conditional_pending_bid_profit ?? null)}</p><p className="mt-1 text-xs text-base-content/60">{profit ? `${profit.pending_estimated_count} known estimates · ${profit.pending_unknown_count} unavailable` : 'Waiting for pending bid estimates'}. Only applies if the bids win.</p></div>
+      <section aria-labelledby="dashboard-profit-title" className="min-w-0 rounded-xl border border-primary/20 bg-primary/5 p-3 sm:px-4">
+        <div className="flex items-baseline justify-between gap-2"><h2 id="dashboard-profit-title" className="text-sm font-semibold">Estimated profit</h2><span className="text-[10px] text-base-content/55">USD</span></div>
+        <div className="mt-2 grid divide-y divide-primary/15">
+          <div className="pb-2"><p className="text-[11px] text-base-content/60">Confirmed bookings</p><p className={`mt-0.5 break-words text-xl font-bold tabular-nums ${profit && Number(profit.confirmed_estimated_profit) < 0 ? 'text-error' : 'text-primary'}`}>{amount(profit?.confirmed_estimated_profit ?? null)}</p><p className="mt-0.5 text-[10px] text-base-content/60">{profit ? `${profit.confirmed_estimated_count} known · ${profit.confirmed_unknown_count} unavailable` : 'Waiting for booking estimates'}</p></div>
+          <div className="pt-2"><p className="text-[11px] text-base-content/60">Pending bids · Conditional</p><p className={`mt-0.5 break-words text-xl font-bold tabular-nums ${profit && Number(profit.conditional_pending_bid_profit) < 0 ? 'text-error' : 'text-base-content'}`}>{amount(profit?.conditional_pending_bid_profit ?? null)}</p><p className="mt-0.5 text-[10px] text-base-content/60">{profit ? `${profit.pending_estimated_count} known · ${profit.pending_unknown_count} unavailable` : 'Waiting for bid estimates'}</p></div>
         </div>
+        <p className="mt-2 text-[10px] leading-relaxed text-base-content/50">Saved estimates, not realized earnings. Pending profit applies only if bids win.</p>
       </section>
+      </div>
 
       <Panel title="Open opportunities" to="/loads" caption="Up to five offers · Soonest expiry first">
         {summary.opportunities.length ? <ul aria-label="Open opportunity cards" tabIndex={0} className="flex snap-x gap-3 overflow-x-auto overscroll-x-contain bg-base-200/30 p-4 focus-visible:outline-2 focus-visible:outline-primary">{summary.opportunities.map((load) => <li key={load.external_id} className="flex w-56 shrink-0 snap-start flex-col gap-3 rounded-lg border border-base-300 bg-base-100 p-3.5">
@@ -95,7 +98,7 @@ export default function DashboardPage() {
         </li>)}</ul> : <NoData loading={loading}>No open opportunities. New orders will appear automatically.</NoData>}
       </Panel>
 
-      <Panel title="Terminal capacity" to="/terminals" caption={summary.attentionCount ? `${summary.attentionCount} hubs need attention · Select a terminal code on the map` : 'Terminal locations and live truck availability'}>
+      <Panel title="Terminal capacity" to="/terminals" caption={summary.attentionCount ? `${summary.attentionCount} hubs need attention` : undefined}>
         <Suspense fallback={<div role="status" className="flex h-[460px] items-center justify-center gap-2 text-sm text-base-content/60 sm:h-[560px] lg:h-[640px]"><span className="loading loading-spinner loading-sm" />Loading terminal map…</div>}>
           <TerminalCapacityMap terminals={terminals} />
         </Suspense>

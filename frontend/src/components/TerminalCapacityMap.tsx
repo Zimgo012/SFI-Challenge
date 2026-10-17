@@ -19,11 +19,11 @@ function CapacityDetails({ terminal }: { terminal: TerminalStatus }) {
     <p className="mt-0.5 text-xs text-muted-foreground">{[terminal.city, terminal.state].filter(Boolean).join(', ') || 'Location unavailable'}</p>
     <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-xs">
       {([
-        ['Available trucks', terminal.available_units], ['Assigned trucks', terminal.assigned_units],
-        ['Total fleet', terminal.total_units], ['Board available', terminal.board_available_units],
+        ['Available', terminal.available_units], ['Assigned', terminal.assigned_units],
+        ['Fleet', terminal.total_units], ['Board available', terminal.board_available_units],
       ] as const).map(([label, value]) => <div key={label} className="flex flex-col gap-0.5"><dt className="text-muted-foreground">{label}</dt><dd className="font-semibold tabular-nums">{count(value)}</dd></div>)}
     </dl>
-    {terminalMapTone(terminal) === 'attention' && <p className="mt-3 text-xs">This terminal’s capacity needs attention.</p>}
+    {terminalMapTone(terminal) === 'attention' && <p className="mt-3 text-xs">Needs attention.</p>}
   </>
 }
 
@@ -69,9 +69,6 @@ export default function TerminalCapacityMap({ terminals }: { terminals: Terminal
 
   return <TooltipProvider delayDuration={150}>
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-3">
-        <p className="text-xs text-base-content/50">{mapped.length} terminals mapped</p>
-      </div>
       <Globe ref={containerRef} role="region" aria-label="Terminal capacity map. Focus or select a terminal code to see truck availability." className="isolate aspect-auto h-[460px] overflow-hidden bg-base-100 sm:h-[560px] lg:h-[640px]">
         <GlobeSvg viewBox={`${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`} textureScale={unit} className="relative" aria-label="Geographic terminal locations">
           <g aria-hidden="true" pointerEvents="none">
@@ -86,7 +83,7 @@ export default function TerminalCapacityMap({ terminals }: { terminals: Terminal
           const terminal = terminalsById.get(marker.id)
           return terminal && <div key={marker.id} className="terminal-globe-position" style={{ left: marker.screenX, top: marker.screenY, width: TERMINAL_MARKER_WIDTH, height: TERMINAL_MARKER_HEIGHT }}>{terminalButton(terminal)}</div>
         })}</div>
-        {(terminals === null || mapped.length === 0) && <p role="status" className="pointer-events-none absolute inset-x-4 top-8 mx-auto max-w-sm rounded-lg border border-base-300 bg-base-100/95 p-4 text-center text-sm shadow-sm">{terminals === null ? 'Loading terminal locations…' : terminals.length === 0 ? 'No terminal locations have been synced yet.' : 'No map coordinates are available for these terminals.'}</p>}
+        {(terminals === null || mapped.length === 0) && <p role="status" className="pointer-events-none absolute inset-x-4 top-8 mx-auto max-w-sm rounded-lg border border-base-300 bg-base-100/95 p-4 text-center text-sm shadow-sm">{terminals === null ? 'Loading terminals…' : terminals.length === 0 ? 'No terminals synced.' : 'Coordinates unavailable.'}</p>}
       </Globe>
       {overflow.length > 0 && <div className="flex flex-wrap items-center gap-4 px-5 py-3" role="group" aria-label="Additional terminal capacity">
         <p className="text-xs text-base-content/60">More terminals</p>
@@ -96,17 +93,16 @@ export default function TerminalCapacityMap({ terminals }: { terminals: Terminal
         })}
       </div>}
       {selected && <div className="flex items-start justify-between gap-4 border-t border-base-300 bg-base-200/40 px-5 py-4" role="region" aria-label={`${selected.code} capacity`}>
-        <div className="min-w-0"><CapacityDetails terminal={selected} /><Link className="mt-3 inline-block text-xs font-semibold text-primary hover:underline" to="/terminals">View terminal & fleet schedules →</Link></div>
+        <div className="min-w-0"><CapacityDetails terminal={selected} /><Link className="mt-3 inline-block text-xs font-semibold text-primary hover:underline" to="/terminals">Fleet schedules →</Link></div>
         <Button variant="ghost" size="icon" className="size-8 shrink-0" aria-label="Close terminal capacity" onClick={() => setSelectedId(null)}><X size={16} /></Button>
       </div>}
       <div className="flex flex-wrap items-center justify-between gap-3 px-5 pb-4 text-[11px] text-base-content/55">
         <div className="flex flex-wrap gap-x-4 gap-y-2">{[
-          ['bg-success', 'Available capacity'], ['bg-base-content/50', 'No available trucks'],
-          ['bg-warning', 'Needs attention'], ['bg-info', 'Unknown capacity'],
+          ['bg-success', 'Available'], ['bg-base-content/50', 'Unavailable'],
+          ['bg-warning', 'Attention'], ['bg-info', 'Unknown'],
         ].map(([color, label]) => <span key={label} className="inline-flex items-center gap-1.5"><span aria-hidden="true" className={`size-2 rounded-full ${color}`} />{label}</span>)}</div>
-        <p>Select a terminal for capacity</p>
       </div>
-      {unmapped.length > 0 && <p className="border-t border-base-300 px-5 py-3 text-xs text-base-content/70">Coordinates unavailable: {unmapped.map((terminal) => terminal.code).join(', ')}. View their capacity on the <Link className="text-primary underline" to="/terminals">Terminals page</Link>.</p>}
+      {unmapped.length > 0 && <p className="border-t border-base-300 px-5 py-3 text-xs text-base-content/70">No coordinates: {unmapped.map((terminal) => terminal.code).join(', ')} · <Link className="text-primary underline" to="/terminals">View terminals</Link></p>}
     </div>
   </TooltipProvider>
 }
