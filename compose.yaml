@@ -1,0 +1,123 @@
+name: ${COMPOSE_PROJECT_NAME:-sfi-challenge}
+
+x-python: &python
+  image: ${SFI_PYTHON_IMAGE:-sfi-challenge-python:local}
+  # Model/migrations reuse the dispatcher build, including on a fresh machine.
+  pull_policy: never
+
+x-health: &health
+  interval: 10s
+  timeout: 30s
+  retries: 12
+  start_period: 30s
+
+services:
+  simulator:
+    image: ${SFI_SIMULATOR_IMAGE:-sfi-challenge-simulator:local}
+    build:
+      context: .
+      dockerfile: docker/simulator.Dockerfile
+    env_file: ${SFI_ENV_FILE:-.env.docker.example}
+    environment:
+      DATABASE_URL: sqlite:////var/lib/sfi/freight_challenge.db
+    volumes:
+      - simulator-db:/var/lib/sfi
+      - simulator-history:/app/simulator/data
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${SIMULATOR_PORT:-8087}:8087"
+    healthcheck:
+      <<: *health
+      test: [CMD, python, /app/docker/healthcheck.py, simulator]
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  model:
+    <<: *python
+    env_file: ${SFI_ENV_FILE:-.env.docker.example}
+    working_dir: /app/model
+    environment:
+      SFI_MODEL_BUNDLE: /artifacts/models/${MODEL_BUNDLE_NAME:-freight-rpm-v1}
+      SFI_HISTORICAL_RANGE_ARTIFACT: /artifacts/baselines/${MODEL_RANGE_NAME:-historical-range-v1.json}
+      MODEL_EXPECTED_VERSION: ${MODEL_EXPECTED_VERSION:-freight-rpm-v1}
+    command: [python, -m, uvicorn, 'sfi_model.api.app:app', --host, 0.0.0.0, --port, '9000', --workers, '1']
+    volumes:
+      - type: bind
+        source: ${MODEL_ARTIFACTS_DIR:-./model/artifacts}
+        target: /artifacts
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${MODEL_PORT:-9000}:9000"
+    healthcheck:
+      <<: *health
+      test: [CMD, python, /app/docker/healthcheck.py, model]
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  migrate:
+    <<: *python
+    env_file: ${SFI_ENV_FILE:-.env.docker.example}
+    environment:
+      DISPATCHER_DATABASE_URL: sqlite:////var/lib/sfi/dispatcher.db
+    command: [python, -m, alembic, upgrade, head]
+    volumes:
+      - dispatcher-db:/var/lib/sfi
+    restart: 'no'
+
+  backend:
+    <<: *python
+    build:
+      context: .
+      dockerfile: docker/python.Dockerfile
+    env_file: ${SFI_ENV_FILE:-.env.docker.example}
+    environment:
+      DISPATCHER_DATABASE_URL: sqlite:////var/lib/sfi/dispatcher.db
+      EXTERNAL_API_URL: http://simulator:8087
+      MODEL_API_URL: http://model:9000
+    volumes:
+      - dispatcher-db:/var/lib/sfi
+      - type: bind
+        source: ${BACKEND_HISTORY_DIR:-./backend/data}
+        target: /history
+        read_only: true
+        bind:
+          create_host_path: false
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      simulator:
+        condition: service_healthy
+      model:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      <<: *health
+      test: [CMD, python, /app/docker/healthcheck.py, backend]
+    restart: unless-stopped
+    stop_grace_period: 60s
+
+  frontend:
+    image: ${SFI_FRONTEND_IMAGE:-sfi-challenge-frontend:local}
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    environment:
+      VITE_API_BASE_URL: http://backend:8000
+      SIMULATION_API_URL: http://simulator:8087
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      <<: *health
+      test: [CMD, node, -e, "Promise.all(['/', '/health', '/api/system/status', '/__simulation/settings'].map(p => fetch('http://127.0.0.1:5173'+p).then(r => { if (!r.ok) throw Error(r.status) }))).catch(() => process.exit(1))"]
+    restart: unless-stopped
+    stop_grace_period: 15s
+
+volumes:
+  dispatcher-db:
+  simulator-db:
+  simulator-history:
