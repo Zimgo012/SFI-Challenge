@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, WebSocket
 from sqlalchemy import Engine
 
 from controller.dependencies import Limit, Offset
@@ -44,3 +44,10 @@ def attempts(run_id: UUID, engine: DatabaseEngine, limit: Limit = 50, offset: Of
 @router.get('/runs/{run_id}/allocations', response_model=Page[AllocationPlanView])
 def allocations(run_id: UUID, engine: DatabaseEngine, limit: Limit = 50, offset: Offset = 0):
     return list_plans(engine, run_id, limit, offset)
+
+
+@router.websocket('/runs/{run_id}/ws')
+async def subscribe_run(websocket: WebSocket, run_id: UUID, engine: DatabaseEngine,
+                        limit: Annotated[int, Query(ge=1, le=50)] = 10):
+    from service.autopilot_stream import stream_run
+    await stream_run(websocket, engine, run_id, limit)

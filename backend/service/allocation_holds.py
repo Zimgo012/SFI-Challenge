@@ -12,13 +12,25 @@ from schema.fleet_unit import FleetUnit
 from schema.scheduling import PendingBidHold
 from service.activity import add_activity
 from service.expiration import utc
+from service.simulation_time import current_sim
+from service.errors import ProductError
+
+
+def reservation_live(session, row, wall):
+    if row.expires_at_sim is not None:
+        try:
+            return utc(row.expires_at_sim) > current_sim(session, wall)
+        except ProductError:
+            return True  # An unknown clock cannot prove that capacity is free.
+    return row.expires_at_wall is not None and utc(row.expires_at_wall) > wall
 
 
 def current_holds(session):
     now = datetime.now(timezone.utc)
     ignored = session.info.get('allocation_plan_id')
     rows = [row for row in session.scalars(select(AllocationReservation))
-            if (row.status != 'reserved' or row.expires_at_wall is not None and utc(row.expires_at_wall) > now)
+            if not (session.info.get('dispatch_action_id') and row.action_id == session.info['dispatch_action_id'])
+            and (row.status != 'reserved' or reservation_live(session, row, now))
             and not (row.status == 'reserved' and row.plan_id == ignored)]
     linked = {row.action_id for row in rows if row.action_id}
     pending = session.execute(select(DispatchAction, Evaluation).join(Evaluation).join(
@@ -65,9 +77,10 @@ def cancel_plans(session, reason, run_id=None, plan_id=None, *, include_collecti
 def reap_plans(session):
     now = datetime.now(timezone.utc)
     for plan in session.scalars(select(AllocationPlan).where(
-        AllocationPlan.status.in_(('planning', 'reserved')), AllocationPlan.expires_at_wall <= now,
+        AllocationPlan.status.in_(('planning', 'reserved')),
     )):
-        cancel_plans(session, 'reservation_ttl_expired', plan.run_id)
+        if not reservation_live(session, plan, now):
+            cancel_plans(session, 'reservation_ttl_expired', plan.run_id)
 
 
 def reconcile_holds(session):
@@ -80,7 +93,7 @@ def reconcile_holds(session):
             if shipment.status in ('bid_lost', 'declined', 'expired'):
                 release = True
             elif shipment.status == 'bid_submitted':
-                hold.status, hold.expires_at_wall = 'pending_bid', None
+                hold.status, hold.expires_at_wall, hold.expires_at_sim = 'pending_bid', None, None
             elif shipment.status in ('accepted', 'in_transit', 'completed'):
                 release = session.scalar(select(Assignment.assignment_id).join(FleetUnit).where(
                     Assignment.shipment_id == shipment.shipment_id,

@@ -31,6 +31,7 @@ from service.expiration import simulated_now, utc
 from service.geography import nearest_terminal, pickup_distance_miles, valid_coordinates
 from service.pickup_routing import evaluate_pickup_routing
 from service.allocation_holds import current_holds
+from service.simulation_time import remaining_seconds
 
 
 @contextmanager
@@ -56,6 +57,11 @@ def fingerprint(session):
         if model is AllocationReservation:
             query = query.where(model.status != 'reserved')
         data[model.__tablename__] = [dict(row) for row in session.execute(query).mappings()]
+    # Clock samples advance continuously. Their read timestamps are freshness
+    # evidence, not a changed truck/order snapshot. Speed changes invalidate
+    # approval; rewinds and simulated expiry are enforced by the run guards.
+    data['simulation_clock'] = [{'clock_id': row['clock_id'], 'simulation_speed': row['simulation_speed']}
+                                for row in data['simulation_clock']]
     data['policy'] = dispatch_policy().model_dump(mode='json')
     return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
 
@@ -171,7 +177,7 @@ def solve_snapshot(engine, settings, bid_rates=None, *, external_ids=None, run_i
         run = session.get(AutopilotRun, run_id) if run_id else AutopilotRun(
             settings=settings.model_dump(mode='json'), estimated_loss_usd=Decimal('0'), pending_estimated_loss_usd=Decimal('0'))
         remaining_slots = max(0, settings.max_orders - (run.orders_reserved if run_id else 0))
-        remaining_seconds = max(0, (utc(run.deadline_at_wall) - wall).total_seconds()) if run_id else settings.max_duration_seconds
+        remaining_duration = remaining_seconds(session, run, wall) if run_id else settings.max_duration_seconds
         orders = available_orders(session, settings, external_ids, run_id)
         result.available_order_count = len(orders)
         chosen = candidate_orders(orders, settings)
@@ -252,8 +258,8 @@ def solve_snapshot(engine, settings, bid_rates=None, *, external_ids=None, run_i
                 return
             seen[state] = profit
             elapsed = len(path) * slot
-            submit_sim = sim + timedelta(seconds=(elapsed + settings.allocation_expiry_buffer_seconds) * speed)
-            if elapsed + settings.allocation_expiry_buffer_seconds >= remaining_seconds:
+            submit_sim = sim + timedelta(seconds=elapsed + settings.allocation_expiry_buffer_seconds)
+            if elapsed + settings.allocation_expiry_buffer_seconds >= remaining_duration:
                 return
             for order in sorted(pending, key=lambda row: (utc(row.expires_at) if row.expires_at else sim,
                                                          -upper[row.external_id], row.external_id)):
@@ -263,7 +269,8 @@ def solve_snapshot(engine, settings, bid_rates=None, *, external_ids=None, run_i
                     result.rejected.setdefault(order.external_id, ['submission_deadline_unreachable'])
                     continue
                 model_until = models.get(order.external_id, {}).get('response', {}).get('valid_until')
-                if model_until is not None and wall + timedelta(seconds=elapsed) >= utc(datetime.fromisoformat(model_until)):
+                elapsed_wall = elapsed / speed if speed > 0 else float('inf')
+                if model_until is not None and (speed <= 0 or wall + timedelta(seconds=elapsed_wall) >= utc(datetime.fromisoformat(model_until))):
                     result.rejected.setdefault(order.external_id, ['MODEL_DECISION_EXPIRES_BEFORE_SUBMISSION'])
                     continue
                 bid = bid_rates.get(order.external_id)
@@ -285,7 +292,8 @@ def solve_snapshot(engine, settings, bid_rates=None, *, external_ids=None, run_i
                     order_type=order.order_type, unit_id=checked.candidate_unit_id,
                     bid_rate=bid if order.order_type == 'open_bid' else None,
                     expires_at=utc(order.expires_at), submission_position=len(path) + 1,
-                    planned_submission_at_wall=wall + timedelta(seconds=elapsed), evaluation=checked,
+                    planned_submission_at_wall=wall + timedelta(seconds=elapsed / speed if speed > 0 else 0),
+                    planned_submission_at_sim=sim + timedelta(seconds=elapsed), evaluation=checked,
                     model_snapshot=models.get(order.external_id, {}))
                 savepoint = session.begin_nested()
                 try:
@@ -314,4 +322,28 @@ def solve_snapshot(engine, settings, bid_rates=None, *, external_ids=None, run_i
 
 def preview_allocation(engine, request):
     with snapshot_engine(engine) as snapshot:
-        return solve_snapshot(snapshot, request.settings, request.bid_rates, external_ids=request.external_ids)
+        result = solve_snapshot(snapshot, request.settings, request.bid_rates, external_ids=request.external_ids)
+        grouped = {}
+        with Session(snapshot) as session:
+            for selection in result.selected:
+                order = session.get(Shipment, selection.shipment_id)
+                group = grouped.setdefault(selection.unit_id, {'unit_id': str(selection.unit_id), 'jobs': [],
+                    'existing_commitments': [], 'planning_only': True, 'submission_enabled': False})
+                group['jobs'].append({'external_id': order.external_id, 'order_type': order.order_type,
+                    'pickup_at': utc(order.pickup_at).isoformat(), 'delivery_at': utc(order.delivery_at).isoformat(),
+                    'expires_at_sim': utc(order.expires_at).isoformat(), 'submission_position': selection.submission_position,
+                    'occupied_window': selection.evaluation.occupied_window.model_dump(mode='json'),
+                    'projected_position': selection.evaluation.projection.model_dump(mode='json'),
+                    'economics': selection.evaluation.economics.model_dump(mode='json'),
+                    'conditional_on_prior_confirmed_delivery': len(group['jobs']) > 0})
+            for unit_id, group in grouped.items():
+                for assignment, order in session.execute(select(Assignment, Shipment).join(Shipment).where(
+                    Assignment.unit_id == unit_id, Assignment.lock_retired_at.is_(None),
+                    Assignment.assignment_status.in_(('confirmed', 'accepted', 'in_transit', 'active'))).order_by(Assignment.busy_from)):
+                    group['existing_commitments'].append({'assignment_id': str(assignment.assignment_id),
+                        'external_id': order.external_id, 'pickup_at': utc(assignment.busy_from).isoformat(),
+                        'delivery_at': utc(assignment.busy_until).isoformat(),
+                        'occupied_from': utc(assignment.occupied_from or assignment.busy_from).isoformat(),
+                        'occupied_until': utc(assignment.occupied_until or assignment.busy_until).isoformat()})
+        result.truck_sequences = list(grouped.values())
+        return result

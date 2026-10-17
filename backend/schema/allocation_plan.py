@@ -8,6 +8,7 @@ from schema.base import Base
 
 
 class AllocationPlan(Base):
+    expires_at_sim: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __tablename__ = 'fleet_allocation_plans'
     __table_args__ = (Index('uq_allocation_active_run', 'run_id', unique=True,
                            sqlite_where=text("status IN ('collecting', 'planning', 'reserved')")),)
@@ -22,6 +23,7 @@ class AllocationPlan(Base):
 
 
 class AllocationReservation(Base):
+    expires_at_sim: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __tablename__ = 'fleet_allocation_reservations'
     reservation_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     plan_id: Mapped[UUID] = mapped_column(Uuid, ForeignKey('fleet_allocation_plans.plan_id'), index=True)

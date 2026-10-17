@@ -16,6 +16,8 @@ from schema.autopilot_run import AutopilotRun
 from schema.allocation_plan import AllocationPlan, AllocationReservation
 from schema.autopilot_attempt import AutopilotAttempt
 from schema.observed_cohort import ObservedCohort, ObservedComparison
+from schema.live_audit import LiveBatchAudit, LiveSubmissionAudit
+from schema.prediction_observation import PredictionObservation
 
 __all__ = [
     'Base',
@@ -36,4 +38,7 @@ __all__ = [
     'AllocationReservation',
     'ObservedCohort',
     'ObservedComparison',
+    'LiveBatchAudit',
+    'LiveSubmissionAudit',
+    'PredictionObservation',
 ]

@@ -14,15 +14,15 @@ class AutopilotSettings(BaseModel):
     enable_fixed_rate: bool = True
     enable_open_bid: bool = True
     max_orders: int = Field(default=10, ge=1, le=10000, strict=True)
-    max_duration_seconds: int = Field(default=300, ge=1, le=86400, strict=True)
+    max_duration_seconds: int = Field(default=300, ge=1, le=86400, strict=True, description='Run duration in simulated seconds')
     max_estimated_loss_usd: Decimal = Field(default=Decimal('0'), ge=0, max_digits=18, decimal_places=2, allow_inf_nan=False)
     min_expected_profit_usd: Decimal = Field(default=Decimal('0'), ge=0, max_digits=18, decimal_places=2, allow_inf_nan=False)
     min_expected_margin_pct: Decimal = Field(default=Decimal('15'), ge=0, lt=100, allow_inf_nan=False)
     max_deadhead_miles: Decimal = Field(default=Decimal('100'), ge=0, allow_inf_nan=False)
     max_bid_rate: PositiveBid | None = None
-    min_action_interval_seconds: float = Field(default=5, ge=1, le=3600, allow_inf_nan=False)
-    max_input_age_seconds: int = Field(default=120, ge=1, le=3600, strict=True)
-    max_decision_age_seconds: int = Field(default=30, ge=1, le=120, strict=True)
+    min_action_interval_seconds: float = Field(default=5, ge=1, le=3600, allow_inf_nan=False, description='Minimum submission spacing in simulated seconds')
+    max_input_age_seconds: int = Field(default=120, ge=1, le=3600, strict=True, description='Operational snapshot freshness in real UTC seconds')
+    max_decision_age_seconds: int = Field(default=30, ge=1, le=120, strict=True, description='External model approval freshness in real UTC seconds')
     max_consecutive_errors: int = Field(default=3, ge=1, le=100, strict=True)
     allow_baseline: bool = False
     model_baseline_id: str | None = Field(default=None, min_length=1)
@@ -31,13 +31,13 @@ class AutopilotSettings(BaseModel):
     allocation_enabled: bool = True
     model_batch_enabled: bool = True
     model_batch_strategy: Literal['best_order', 'fleet_allocation'] = 'fleet_allocation'
-    collection_window_seconds: float = Field(default=0, ge=0, le=300, allow_inf_nan=False)
+    collection_window_seconds: float = Field(default=0, ge=0, le=300, allow_inf_nan=False, description='Order collection window in simulated seconds')
     allocation_max_candidates: int = Field(default=12, ge=1, le=30, strict=True)
     allocation_max_nodes: int = Field(default=2000, ge=1, le=100000, strict=True)
-    allocation_max_seconds: float = Field(default=2, ge=.05, le=10, allow_inf_nan=False)
-    allocation_submission_seconds: float = Field(default=20, ge=1, le=120, allow_inf_nan=False)
-    allocation_expiry_buffer_seconds: float = Field(default=1, ge=0, le=60, allow_inf_nan=False)
-    allocation_reservation_ttl_seconds: int = Field(default=30, ge=1, le=120, strict=True)
+    allocation_max_seconds: float = Field(default=2, ge=.05, le=10, allow_inf_nan=False, description='CPU search budget in real seconds')
+    allocation_submission_seconds: float = Field(default=20, ge=1, le=120, allow_inf_nan=False, description='Planned submission slot in simulated seconds')
+    allocation_expiry_buffer_seconds: float = Field(default=1, ge=0, le=60, allow_inf_nan=False, description='Offer expiry buffer in simulated seconds')
+    allocation_reservation_ttl_seconds: int = Field(default=30, ge=1, le=120, strict=True, description='Unsent capacity lease in simulated seconds')
 
     @model_validator(mode='after')
     def valid_types(self):
@@ -58,12 +58,19 @@ class StartAutopilotRequest(AutopilotSettings):
 
 
 class AutopilotRunView(View):
+    time_basis: Literal['simulation_clock', 'wall_clock_legacy']
+    started_at_sim: datetime | None
+    deadline_at_sim: datetime | None
+    stopped_at_sim: datetime | None
+    sim_time_utc: datetime | None
+    simulation_speed: Decimal | None
+    estimated_deadline_at_wall: datetime | None
     run_id: UUID
     status: str
     mode: str
     settings: AutopilotSettings
     started_at_wall: datetime
-    deadline_at_wall: datetime
+    deadline_at_wall: datetime | None
     stopped_at_wall: datetime | None
     stop_reason: str | None
     orders_reserved: int

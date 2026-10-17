@@ -40,6 +40,7 @@ class AllocationSelection(BaseModel):
     expires_at: datetime
     submission_position: int
     planned_submission_at_wall: datetime
+    planned_submission_at_sim: datetime | None = None
     evaluation: DispatchEvaluation
     model_snapshot: dict = Field(default_factory=dict)
 
@@ -64,9 +65,12 @@ class AllocationResult(BaseModel):
     deadhead_cost: Decimal = Decimal('0')
     deadhead_miles: Decimal = Decimal('0')
     warnings: list[str] = Field(default_factory=list)
+    truck_sequences: list[dict] = Field(default_factory=list)
+    sequence_execution_policy: Literal['reanalyze_after_each_confirmed_assignment'] = 'reanalyze_after_each_confirmed_assignment'
 
 
 class AllocationPlanView(View):
+    expires_at_sim: datetime | None = None
     plan_id: UUID
     run_id: UUID
     status: str

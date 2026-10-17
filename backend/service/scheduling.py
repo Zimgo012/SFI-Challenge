@@ -71,6 +71,7 @@ def reservation_conflicts(session: Session, unit_ids, pickup_at: datetime, deliv
         AssignmentReservation.unit_id.in_(unit_ids),
         AssignmentReservation.busy_from < utc(delivery_at),
         AssignmentReservation.busy_until > utc(pickup_at),
+        AssignmentReservation.action_id != session.info['dispatch_action_id'] if session.info.get('dispatch_action_id') else True,
     ).order_by(AssignmentReservation.busy_from, AssignmentReservation.action_id)).all()
     for reservation, status in rows:
         conflicts[reservation.unit_id].append(ReservationConflict(

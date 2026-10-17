@@ -13,6 +13,7 @@ from schema.autopilot_attempt import AutopilotAttempt
 from schema.autopilot_run import AutopilotRun
 from schema.dispatch_action import DispatchAction
 from schema.shipment import Shipment
+from schema.simulation_clock import SimulationClock
 from service.actions import execute_action
 from service.activity import add_activity
 from service.autopilot_guards import (
@@ -25,6 +26,7 @@ from service.expiration import utc
 from service.price_analysis import analysis_settings, make_model_client
 from service.ranking import recommendations
 from service.model_lane import model_shipment_features
+from service.simulation_time import attempt_due, current_sim, guard_run_clock, remaining_seconds, wall_estimate
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,13 @@ def transaction(engine):
 
 
 def run_view(session, run):
-    remaining = max(0, (utc(run.deadline_at_wall) - wall_now()).total_seconds()) if run.status == 'running' else 0
+    wall = wall_now()
+    clock = session.get(SimulationClock, 1)
+    try:
+        sim = current_sim(session, wall)
+        remaining = remaining_seconds(session, run, wall)
+    except ProductError:
+        sim, remaining = None, 0
     from service.model_autopilot import live_model_token
     try:
         live_model_token()
@@ -47,16 +55,22 @@ def run_view(session, run):
     except ValueError:
         auth_configured = False
     config = AutopilotSettings.model_validate(run.settings)
-    live = run.mode == 'live' and run.status == 'running' and live_enabled()
+    fresh = clock is not None and clock.last_synced_at is not None and -5 <= (wall - utc(clock.last_synced_at)).total_seconds() <= config.max_input_age_seconds
+    live = run.mode == 'live' and run.status == 'running' and remaining > 0 and sim is not None and fresh and clock.simulation_speed > 0 and live_enabled()
     fixed_enabled = live and config.enable_fixed_rate and (auth_configured or not config.model_batch_enabled)
     bids_enabled = live and config.enable_open_bid and auth_configured
     from service.order_collection import collection_view
     return AutopilotRunView(
         **{field: getattr(run, field) for field in (
-            'run_id', 'status', 'mode', 'settings', 'started_at_wall', 'deadline_at_wall',
+            'run_id', 'status', 'mode', 'settings', 'started_at_wall',
             'stopped_at_wall', 'stop_reason', 'orders_reserved', 'estimated_loss_usd',
             'pending_estimated_loss_usd', 'consecutive_errors',
         )},
+        time_basis='simulation_clock' if run.deadline_at_sim is not None else 'wall_clock_legacy',
+        started_at_sim=run.started_at_sim, deadline_at_sim=run.deadline_at_sim, stopped_at_sim=run.stopped_at_sim,
+        sim_time_utc=sim, simulation_speed=clock.simulation_speed if clock is not None else None,
+        deadline_at_wall=wall_estimate(session, run.deadline_at_sim, wall) if sim is not None and run.deadline_at_sim else run.deadline_at_wall,
+        estimated_deadline_at_wall=wall_estimate(session, run.deadline_at_sim, wall) if sim is not None else None,
         loss_basis='booking_time_estimates' if run.mode == 'live' else 'shadow_decision_estimates',
         seconds_remaining=remaining,
         inflight_attempt_ids=list(session.scalars(select(AutopilotAttempt.attempt_id).where(
@@ -91,15 +105,23 @@ def start_run(engine, request):
             ).where(DispatchAction.request_status.in_(('submitting', 'unknown')))):
                 raise ProductError(409, 'Reconcile the previous autopilot submission before starting a new live run')
             now = wall_now()
+            sim = current_sim(session, now)
+            clock = session.get(SimulationClock, 1)
+            if not -5 <= (now - utc(clock.last_synced_at)).total_seconds() <= settings.max_input_age_seconds:
+                raise ProductError(503, 'Simulation clock is stale; synchronize the board before starting autopilot')
+            deadline_sim = sim + timedelta(seconds=settings.max_duration_seconds)
             run = AutopilotRun(
                 run_id=request.run_id, mode=request.mode, status='running', settings=settings.model_dump(mode='json'),
-                started_at_wall=now, deadline_at_wall=now + timedelta(seconds=settings.max_duration_seconds),
+                started_at_wall=now, deadline_at_wall=wall_estimate(session, deadline_sim, now) or now + timedelta(seconds=settings.max_duration_seconds),
+                started_at_sim=sim, deadline_at_sim=deadline_sim,
+                last_clock_sim_at=clock.sim_time_utc, last_clock_synced_at_wall=clock.last_synced_at,
                 orders_reserved=0, estimated_loss_usd=0, pending_estimated_loss_usd=0, consecutive_errors=0,
             )
             session.add(run)
             session.flush()
             add_activity(session, 'autopilot.started', f'{run.mode} autopilot started', details={
                 'run_id': str(run.run_id), 'settings': run.settings, 'mode': run.mode,
+                'time_basis': 'simulation_clock', 'started_at_sim': sim.isoformat(), 'deadline_at_sim': deadline_sim.isoformat(),
             })
             return run_view(session, run)
     except IntegrityError as exc:
@@ -163,11 +185,16 @@ def claim_order(engine):
         if run is None or check_run_limits(session, run):
             return None
         config = AutopilotSettings.model_validate(run.settings)
+        if session.get(SimulationClock, 1).simulation_speed <= 0:
+            return None
+        from service.live_audit import now as submission_now, rate_limit_ready
+        if not rate_limit_ready(session, config, submission_now()):
+            return None
         if session.scalar(select(AutopilotAttempt.attempt_id).where(
             AutopilotAttempt.run_id == run.run_id, AutopilotAttempt.status.in_(INFLIGHT),
         )):
             return None
-        if run.last_attempt_at_wall and (wall_now() - utc(run.last_attempt_at_wall)).total_seconds() < config.min_action_interval_seconds:
+        if not attempt_due(session, run, config.min_action_interval_seconds, wall_now()):
             return None
         types = [kind for kind, enabled in (('fixed_rate', config.enable_fixed_rate), ('open_bid', config.enable_open_bid)) if enabled]
         attempted = select(AutopilotAttempt.shipment_id).where(AutopilotAttempt.run_id == run.run_id)
@@ -196,6 +223,7 @@ def claim_order(engine):
             model_snapshot={}, evaluation_snapshot={}, reason_codes=[],
         )
         run.last_attempt_at_wall = now
+        run.last_attempt_at_sim = current_sim(session, now)
         session.add(attempt)
         session.flush()
         add_activity(session, 'autopilot.evaluating', 'Autopilot claimed an order for evaluation',
@@ -228,7 +256,7 @@ def decision_snapshot(engine, attempt_id):
         shipment = session.get(Shipment, attempt.shipment_id)
         checked = evaluate_dispatch(session, shipment)
         return checked, prepare_decision(session, shipment, checked,
-            AutopilotSettings.model_validate(run.settings), fingerprint(session), run=run)
+            AutopilotSettings.model_validate(run.settings), fingerprint(session), run=run, capture_snapshot=True)
 
 
 def store_decision(engine, attempt_id, checked, reasons, *, model=None, bid_rate=None, review=False):
@@ -294,7 +322,7 @@ async def process_one(engine):
     attempt_id, run_id, deadline = claimed
     checked, model = None, {}
     try:
-        async with asyncio.timeout(max(.001, (deadline - wall_now()).total_seconds())):
+        async with guard_run_clock(engine, run_id):
             checked, reasons, features, config, lane = await asyncio.to_thread(candidate_snapshot, engine, attempt_id)
             bid = None
             if features is not None:
@@ -306,7 +334,7 @@ async def process_one(engine):
                 else:
                     from service.model_autopilot import decision_rejections, evaluate_model, matches_evaluation
                     checked, prepared = await asyncio.to_thread(decision_snapshot, engine, attempt_id)
-                    model, bid = await evaluate_model(prepared)
+                    model, bid = await evaluate_model(prepared, audit_engine=engine)
                     reasons = decision_rejections(model)
                     if bid is not None and not reasons:
                         checked, reasons, _, _, _ = await asyncio.to_thread(
@@ -336,9 +364,9 @@ async def process_one(engine):
         await asyncio.shield(asyncio.to_thread(recover_runs, engine, 'backend_shutdown'))
         raise
     except TimeoutError:
-        if wall_now() >= deadline:
-            with transaction(engine) as session:
-                stop_run_record(session, session.get(AutopilotRun, run_id), 'time_limit_reached')
+        with transaction(engine) as session:
+            stopped = check_run_limits(session, session.get(AutopilotRun, run_id))
+        if stopped:
             await asyncio.to_thread(finish_attempt, engine, attempt_id, 'Autopilot time limit reached')
         else:
             await asyncio.to_thread(store_decision, engine, attempt_id, checked, ['MODEL_TIMEOUT'], model=model, review=True)
@@ -357,7 +385,7 @@ async def process_one(engine):
 
 async def autopilot_worker():
     while True:
-        await asyncio.sleep(1)
+        await asyncio.sleep(.1)
         try:
             await process_one(get_engine())
         except asyncio.CancelledError:

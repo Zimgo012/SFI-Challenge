@@ -16,6 +16,7 @@ from service.expiration import utc
 from service.fleet_allocation import available_orders, candidate_orders, fingerprint, next_commitment_rejections
 from service.model_autopilot import context_fingerprint, live_model_token, prepare_decision
 from service.price_analysis import model_number
+from service.live_audit import operational_snapshot
 
 MODEL_BATCH_PATH = 'api/v1/autopilot/live/analyze-batch'
 
@@ -33,6 +34,7 @@ def prepare_batch(engine, config, run_id, plan_id, external_ids=None):
                 if next_commitment_rejections(session, order, checked):
                     raise ValueError('MODEL_NEXT_COMMITMENT_UNREACHABLE')
                 item = prepare_decision(session, order, checked, config, version, run=run, computed_at=computed_at)
+                item['backend_evaluation'] = checked.model_dump(mode='json')
                 request = item['request']
                 request['shipment']['order_type'] = order.order_type
                 context = request['backend_context']
@@ -69,13 +71,15 @@ def prepare_batch(engine, config, run_id, plan_id, external_ids=None):
         for row in payload['orders']:
             if row['shipment']['order_type'] == 'open_bid':
                 row.pop('offered_rate_dollars', None)
+        snapshot = operational_snapshot(session, config)
+        snapshot['evaluations'] = {key: value['backend_evaluation'] for key, value in prepared.items()}
         return {'request': payload, 'scope': {
             'available_order_count': len(all_orders), 'submitted_pair_count': len(rows),
             'omitted_external_ids': [order.external_id for order in all_orders if order.external_id not in prepared],
             'candidate_limit': config.allocation_max_candidates,
             'unit_scope': 'currently_board_selectable_units',
             'position_scope': 'coherent_pickup_projections_with_actual_source_timestamps',
-        }}, prepared, errors
+        }, 'operational_snapshot': snapshot}, prepared, errors
 
 
 def validate_batch(request_data, response_data):
@@ -249,17 +253,28 @@ def validate_pair(model):
     return pair, Decimal(str(pair.candidate_bid_dollars))
 
 
-async def analyze_batch(prepared, inputs, errors):
+async def analyze_batch(prepared, inputs, errors, *, audit_engine=None):
     from service import autopilot
     models = dict(errors)
     if prepared is None:
         return {}, models, {'error': 'MODEL_BATCH_NO_USABLE_PAIRS'}
     audit = dict(prepared)
+    capture_id = None
     try:
+        if audit_engine is not None:
+            from service.live_audit import begin_capture
+            capture_id = await asyncio.to_thread(begin_capture, audit_engine, prepared)
+            audit['audit_id'] = str(capture_id)
         url, timeout, _ = autopilot.analysis_settings()
         async with asyncio.timeout(timeout), autopilot.make_model_client(url, timeout) as client:
             response = await client.post(MODEL_BATCH_PATH, json=prepared['request'],
                                          headers={'Authorization': 'Bearer ' + live_model_token()})
+            from service.live_audit import now
+            received_at = now()
+        if capture_id is not None:
+            from service.live_audit import finish_capture
+            await asyncio.shield(asyncio.to_thread(finish_capture, audit_engine, capture_id,
+                                                  response=response, received_at=received_at))
         response.raise_for_status()
         if len(response.content) > 4_194_304:
             raise ValueError('MODEL_BATCH_RESPONSE_TOO_LARGE')
@@ -274,6 +289,7 @@ async def analyze_batch(prepared, inputs, errors):
             models[pair.shipment_id] = {**item, 'kind': 'batch', 'batch_request': prepared['request'],
                 'batch_response': audit['response'], 'response': pair.model_dump(mode='json'),
                 'selected': row.selected, 'decision': pair.decision, 'reason_codes': pair.reason_codes,
+                'audit_id': str(capture_id) if capture_id else None,
                 'comparison': row.comparison.model_dump(mode='json'), 'checked_at_wall': audit['checked_at_wall']}
             if row.selected:
                 bids[pair.shipment_id] = Decimal(str(pair.candidate_bid_dollars))
@@ -281,9 +297,17 @@ async def analyze_batch(prepared, inputs, errors):
             models[external_id] = {'kind': 'batch', 'error': 'MODEL_BATCH_ANALYSIS_UNAVAILABLE',
                                    'decision': 'REVIEW', 'reason_codes': validated.reason_codes}
         return bids, models, audit
+    except asyncio.CancelledError:
+        if capture_id is not None:
+            from service.live_audit import finish_capture
+            await asyncio.shield(asyncio.to_thread(finish_capture, audit_engine, capture_id, error='MODEL_REQUEST_CANCELLED'))
+        raise
     except (ValueError, KeyError, TypeError, ArithmeticError, httpx.HTTPError, TimeoutError) as exc:
         code = str(exc) if isinstance(exc, ValueError) and str(exc).startswith('MODEL_') else 'MODEL_BATCH_UNAVAILABLE'
         audit.update(error=code, http_status=exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None)
+        if capture_id is not None:
+            from service.live_audit import finish_capture
+            await asyncio.to_thread(finish_capture, audit_engine, capture_id, error=code)
         for external_id in inputs:
             models[external_id] = {'kind': 'batch', 'error': code, 'decision': 'REVIEW'}
         return {}, models, audit

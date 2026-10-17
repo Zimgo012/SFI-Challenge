@@ -79,6 +79,10 @@ def upsert_orders(
         upsert(session, Shipment, 'external_id', values, insert_only=created_only)
         current = session.scalar(select(Shipment).where(Shipment.external_id == order.external_id).execution_options(populate_existing=True))
         observed_orders.append(current)
+        from service.live_audit import observe_outcome
+        observe_outcome(session, current, synced_at)
+        from service.prediction_capture import observe_outcome as observe_prediction_outcome
+        observe_prediction_outcome(session, current, synced_at)
         if previous_status is None or previous_status != current.status:
             add_activity(
                 session, 'order.ingested' if previous_status is None else 'order.status_changed',
@@ -201,10 +205,21 @@ async def _ingest(
                 clock_received_at = datetime.now(timezone.utc)
             return response.json(parse_float=Decimal)
 
-        terminals_data, orders_data = await asyncio.gather(
+        terminals_data, orders_data, open_orders_data = await asyncio.gather(
             fetch('terminals'), fetch('orders?status=all'),
+            fetch('orders?status=open'),
         )
         orders = TypeAdapter(list[BoardOrder]).validate_python(orders_data)
+        open_orders = TypeAdapter(list[BoardOrder]).validate_python(open_orders_data)
+        # A previous accelerated epoch can put old rows ahead of fresh arrivals
+        # in the board's latest-200 all-status response. Discover open offers
+        # independently rather than relying on that date-sorted history window.
+        by_external_id = {order.external_id: order for order in orders}
+        for order in open_orders:
+            # The open read adds discovery, never reopens a closed row already
+            # returned by the all-status read when concurrent responses differ.
+            by_external_id.setdefault(order.external_id, order)
+        orders = list(by_external_id.values())
         orders, missing_order_ids = await reconcile_known_orders(client, engine, orders, tracked_order_ids)
         # Order reads can advance delivery lifecycle on the board. Refresh the
         # roster afterwards so position, availability, and re-homing are current.

@@ -46,8 +46,8 @@ def financial_view(row):
     return ShipmentFinancialView(
         external_id=row.external_id, status=outcome.get('status', 'missing'), actuals=actuals,
         total_cost_usd=money(total) if total is not None else None,
-        realized_profit_usd=money(profit) if profit is not None else None,
-        margin_pct=money(profit / actuals.payout_usd * 100) if actuals and actuals.payout_usd else None,
+        realized_profit_usd=money(profit) if profit is not None and actuals.actual_cost_scope_complete else None,
+        margin_pct=money(profit / actuals.payout_usd * 100) if actuals and actuals.payout_usd and actuals.actual_cost_scope_complete else None,
         **{key: outcome.get(key) for key in ('booking_evaluation_id', 'model_analysis_id', 'recorded_at_wall',
                                            'reviewed_at_wall', 'reviewer', 'review_notes')})
 
@@ -61,8 +61,11 @@ def record_financials(session, external_id, request):
         row = shipment_record(session, external_id)
         if row.status != 'completed' or row.board_assigned_unit_id is None:
             raise ProductError(409, 'Record final actuals only for a completed shipment with a confirmed assigned unit')
+        if request.completed_at_wall is not None and request.completed_at_wall > wall_now():
+            raise ProductError(422, 'Actual wall-clock completion cannot be in the future; do not supply simulated delivery time')
         data = request.model_dump(mode='json')
-        if row.financial_outcome and row.financial_outcome.get('actuals') == data:
+        original = ShipmentFinancialRequest.model_validate(row.financial_outcome['actuals']).model_dump(mode='json') if row.financial_outcome else None
+        if original == data:
             return financial_view(row)
         if row.financial_outcome and row.financial_outcome.get('status') == 'reviewed':
             raise ProductError(409, 'Reviewed actuals are immutable; retain the evidence and resolve corrections explicitly')
@@ -130,6 +133,8 @@ def cohort_evidence(session, cohort):
     views = [financial_view(row) for row in shipments]
     if any(view.status != 'reviewed' for view in views):
         raise ProductError(409, 'Review every shipment actual outcome before comparing the cohort')
+    if any(not view.actuals.actual_cost_scope_complete for view in views):
+        raise ProductError(409, 'Explicitly confirm complete actual cost scope for every observed shipment')
     if any(row.status != 'completed' or row.board_assigned_unit_id != row.financial_outcome.get('assigned_board_unit_id') for row in shipments):
         raise ProductError(409, 'Every observed shipment must remain completed')
     occupied = sum((view.actuals.occupied_hours for view in views), Decimal(0))

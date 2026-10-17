@@ -6,7 +6,7 @@ import copy
 import hashlib
 import json
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -24,6 +24,7 @@ from service.autopilot_guards import INFLIGHT, check_run_limits, wall_now
 from service.dispatch_policy import evaluate_dispatch
 from service.errors import ProductError
 from service.expiration import simulated_now, utc
+from service.simulation_time import attempt_due, current_sim, guard_run_clock, wall_estimate
 from service.fleet_allocation import available_orders, candidate_orders, fingerprint, snapshot_engine, solve_snapshot
 from service.model_autopilot import (
     decision_rejections, evaluate_model, matches_evaluation, prepare_decision, validate_decision,
@@ -48,9 +49,9 @@ async def price_while_current(engine, plan_id, inputs, errors, cache, config, *,
 
     if batch is not None:
         from service.model_batch import analyze_batch
-        pricing = analyze_batch(batch, inputs, errors)
+        pricing = analyze_batch(batch, inputs, errors, audit_engine=engine)
     else:
-        pricing = price_batch(inputs, errors, cache, config)
+        pricing = price_batch(inputs, errors, cache, config, audit_engine=engine)
     quote, monitor = asyncio.create_task(pricing), asyncio.create_task(watch())
     try:
         done, _ = await asyncio.wait((quote, monitor), return_when=asyncio.FIRST_COMPLETED)
@@ -73,6 +74,11 @@ def claim_plan(engine):
         if run is None or check_run_limits(session, run):
             return None
         config = AutopilotSettings.model_validate(run.settings)
+        if session.get(SimulationClock, 1).simulation_speed <= 0:
+            return None
+        from service.live_audit import now as submission_now, rate_limit_ready
+        if not rate_limit_ready(session, config, submission_now()):
+            return None
         if session.scalar(select(AutopilotAttempt.attempt_id).where(
             AutopilotAttempt.run_id == run.run_id, AutopilotAttempt.status.in_(INFLIGHT))):
             return None
@@ -82,7 +88,7 @@ def claim_plan(engine):
         now = wall_now()
         from service.order_collection import collect_or_close, collecting_plan, continue_collection
         pending_collection = collecting_plan(session, run.run_id)
-        if run.last_attempt_at_wall and (now - utc(run.last_attempt_at_wall)).total_seconds() < config.min_action_interval_seconds:
+        if not attempt_due(session, run, config.min_action_interval_seconds, now):
             return None
         if config.collection_window_seconds > 0 or pending_collection is not None:
             plan = continue_collection(session, run, config, now) if pending_collection is None else None
@@ -93,10 +99,14 @@ def claim_plan(engine):
             return plan.plan_id, run.run_id, config, utc(run.deadline_at_wall)
         if not available_orders(session, config, run_id=run.run_id):
             return None
+        sim = current_sim(session, now)
+        expiry_sim = min(utc(run.deadline_at_sim), sim + timedelta(seconds=120))
         plan = AllocationPlan(run_id=run.run_id, status='planning', result={}, created_at_wall=now,
-                              expires_at_wall=min(utc(run.deadline_at_wall), now + timedelta(seconds=120)))
+                              expires_at_sim=expiry_sim,
+                              expires_at_wall=wall_estimate(session, expiry_sim, now) or now + timedelta(seconds=120))
         session.add(plan)
         run.last_attempt_at_wall = now
+        run.last_attempt_at_sim = sim
         session.flush()
         return plan.plan_id, run.run_id, config, utc(run.deadline_at_wall)
 
@@ -104,6 +114,7 @@ def claim_plan(engine):
 def price_inputs(engine, config, run_id, external_ids=None):
     inputs, errors, cache = {}, {}, {}
     with Session(engine) as session:
+        session.execute(text('BEGIN'))
         run = session.get(AutopilotRun, run_id)
         version = fingerprint(session)
         previous = session.scalar(select(AllocationPlan).where(AllocationPlan.run_id == run_id,
@@ -114,14 +125,14 @@ def price_inputs(engine, config, run_id, external_ids=None):
             if order.order_type == 'open_bid':
                 try:
                     checked = evaluate_dispatch(session, order)
-                    inputs[order.external_id] = prepare_decision(session, order, checked, config, version, run=run)
+                    inputs[order.external_id] = prepare_decision(session, order, checked, config, version, run=run, capture_snapshot=True)
                 except (ValueError, TypeError) as exc:
                     errors[order.external_id] = {'error': str(exc) if str(exc).startswith('MODEL_') else 'MODEL_INPUTS_MISSING_OR_INVALID',
                                                  'decision': 'REVIEW'}
     return inputs, errors, cache
 
 
-async def price_batch(inputs, errors, cache, config):
+async def price_batch(inputs, errors, cache, config, *, audit_engine=None):
     models, bids = dict(errors), {}
     semaphore = asyncio.Semaphore(4)
 
@@ -144,7 +155,7 @@ async def price_batch(inputs, errors, cache, config):
                 pass
         if model is None:
             async with semaphore:
-                model, amount = await evaluate_model(prepared)
+                model, amount = await evaluate_model(prepared, audit_engine=audit_engine)
         models[external_id] = model
         if amount is not None and not decision_rejections(model):
             bids[external_id] = amount
@@ -163,7 +174,7 @@ def changed_decision_inputs(engine, result, config, run_id):
                 order = session.get(Shipment, item.shipment_id)
                 if item.order_type == 'open_bid' and not matches_evaluation(item.model_snapshot, item.evaluation):
                     version = hashlib.sha256(json.dumps([result.snapshot_fingerprint, prefix], sort_keys=True).encode()).hexdigest()
-                    inputs[item.external_id] = prepare_decision(session, order, item.evaluation, config, version, run=run)
+                    inputs[item.external_id] = prepare_decision(session, order, item.evaluation, config, version, run=run, capture_snapshot=True)
                 prefix.append([item.external_id, str(item.unit_id), str(item.bid_rate)])
                 virtual_booking(session, order, item.evaluation, item.bid_rate)
         finally:
@@ -232,7 +243,7 @@ def reserve_plan(engine, plan_id, result, models, batch_analysis=None):
                 return None
             now = wall_now()
             clock = session.get(SimulationClock, 1)
-            sim = simulated_now(clock)
+            sim = current_sim(session, now)
             slot = max(config.min_action_interval_seconds, config.allocation_submission_seconds)
             if len(result.selected) + run.orders_reserved > config.max_orders:
                 cancel_plans(session, 'order_limit_changed', plan_id=plan_id)
@@ -251,8 +262,8 @@ def reserve_plan(engine, plan_id, result, models, batch_analysis=None):
                         or not matches_evaluation(item.model_snapshot, item.evaluation)):
                     cancel_plans(session, 'model_decision_stale_or_changed', plan_id=plan_id)
                     return None
-                if (utc(item.expires_at) <= sim + timedelta(seconds=(index * slot + config.allocation_expiry_buffer_seconds) * float(clock.simulation_speed))
-                        or now + timedelta(seconds=index * slot + config.allocation_expiry_buffer_seconds) >= utc(run.deadline_at_wall)):
+                if (utc(item.expires_at) <= sim + timedelta(seconds=index * slot + config.allocation_expiry_buffer_seconds)
+                        or sim + timedelta(seconds=index * slot + config.allocation_expiry_buffer_seconds) >= utc(run.deadline_at_sim)):
                     cancel_plans(session, 'submission_deadline_changed', plan_id=plan_id)
                     return None
             if not result.selected:
@@ -270,12 +281,13 @@ def reserve_plan(engine, plan_id, result, models, batch_analysis=None):
                 cancel_plans(session, 'first_assignment_changed', plan_id=plan_id)
                 return None
             plan.status = 'reserved'
-            plan.expires_at_wall = now + timedelta(seconds=config.allocation_reservation_ttl_seconds)
+            plan.expires_at_sim = min(utc(run.deadline_at_sim), sim + timedelta(seconds=config.allocation_reservation_ttl_seconds))
+            plan.expires_at_wall = wall_estimate(session, plan.expires_at_sim, now) or now + timedelta(seconds=config.allocation_reservation_ttl_seconds)
             for item in result.selected:
                 session.add(AllocationReservation(plan_id=plan_id, shipment_id=item.shipment_id, unit_id=item.unit_id,
                     status='reserved', busy_from=item.evaluation.occupied_window.occupied_from,
                     busy_until=item.evaluation.occupied_window.occupied_until, created_at_wall=now,
-                    expires_at_wall=plan.expires_at_wall))
+                    expires_at_wall=plan.expires_at_wall, expires_at_sim=plan.expires_at_sim))
                 if item is first:
                     attempt = session.scalar(select(AutopilotAttempt).where(
                         AutopilotAttempt.run_id == run.run_id, AutopilotAttempt.shipment_id == item.shipment_id))
@@ -320,7 +332,7 @@ async def process_allocation(engine):
     plan_id, run_id, config, deadline = claimed
     manager, snapshot, attempt_id = snapshot_engine(engine), None, None
     try:
-        async with asyncio.timeout(max(.001, (deadline - wall_now()).total_seconds())):
+        async with guard_run_clock(engine, run_id):
             snapshot = await asyncio.to_thread(manager.__enter__)
             with Session(snapshot) as session:
                 collection = session.get(AllocationPlan, plan_id).result.get('collection')

@@ -20,22 +20,33 @@ async def reconcile_known_orders(
     client: httpx.AsyncClient, engine: Engine, snapshot: list[BoardOrder],
     tracked_order_ids: set[str] | None = None,
 ) -> tuple[list[BoardOrder], set[str]]:
-    """Recover known orders outside the board's capped status=all response."""
+    """Recover live orders without re-fetching the entire closed archive per arrival."""
     known_ids = await asyncio.to_thread(known_order_ids, engine)
-    absent_ids = known_ids - {order.external_id for order in snapshot}
+    snapshot_ids = {order.external_id for order in snapshot}
+    absent_ids = known_ids - snapshot_ids
     def tracked_ids():
         with Session(engine) as session:
-            active = set(session.scalars(select(Shipment.external_id).where(
+            active = list(session.execute(select(Shipment.external_id, Shipment.status).where(
                 Shipment.board_retired_at.is_(None),
-                Shipment.status.in_(('bid_submitted', 'accepted', 'in_transit')),
+                Shipment.status.in_(('open', 'bid_submitted', 'accepted', 'in_transit')),
             )))
-            active.update(session.scalars(select(Shipment.external_id).join(DispatchAction).where(
+            uncertain = set(session.scalars(select(Shipment.external_id).join(DispatchAction).where(
                 Shipment.board_retired_at.is_(None),
                 DispatchAction.request_status.in_(('submitting', 'unknown')),
             )))
-            return active
+            live_ids = {external_id for external_id, _ in active} | uncertain
+            tracked = {external_id for external_id, status in active if status != 'open'} | uncertain
+            return live_ids, tracked
 
-    tracked = await asyncio.to_thread(tracked_ids)
+    live_ids, tracked = await asyncio.to_thread(tracked_ids)
+    if known_ids & snapshot_ids:
+        # Closed history is retained locally, but cannot change fleet capacity.
+        # Keep ordinary passes bounded by current offers/bookings and uncertain
+        # actions instead of thousands of completed/expired detail requests.
+        absent_ids &= live_ids
+    # If no known identity remains in the snapshot, retain the exhaustive 404
+    # check. Reset retirement still requires proof that ALL old orders vanished;
+    # a clock rewind or a capped list alone must never release locks.
     tracked.update(tracked_order_ids or ())
     tracked.update(order.external_id for order in snapshot if order.status in ('bid_submitted', 'accepted', 'in_transit'))
     semaphore = asyncio.Semaphore(8)

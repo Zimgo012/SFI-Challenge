@@ -50,7 +50,7 @@ def oldest(*stamps):
     return min(map(utc, stamps)) if stamps and all(stamp is not None for stamp in stamps) else None
 
 
-def prepare_decision(session, shipment, checked, config, snapshot_version, *, run=None, computed_at=None):
+def prepare_decision(session, shipment, checked, config, snapshot_version, *, run=None, computed_at=None, capture_snapshot=False):
     if run is not None and run.mode != 'live':
         raise ValueError('MODEL_LIVE_MODE_REQUIRED')
     features, lane = model_shipment_features(session, shipment)
@@ -128,7 +128,12 @@ def prepare_decision(session, shipment, checked, config, snapshot_version, *, ru
         control=DecisionControl(autopilot_enabled=run is None or run.status == 'running',
             kill_switch_active=run is not None and (run.status != 'running' or run.mode == 'live' and not live_enabled())),
     )
-    return {'request': request.model_dump(mode='json'), 'lane_resolution': lane.model_dump(mode='json'),
+    captured = {}
+    if capture_snapshot:
+        from service.live_audit import operational_snapshot
+        captured = {'operational_snapshot': operational_snapshot(session, config),
+                    'backend_evaluation': checked.model_dump(mode='json')}
+    return {**captured, 'request': request.model_dump(mode='json'), 'lane_resolution': lane.model_dump(mode='json'),
             'backend_mode': 'live',
             'simulation_clock_context': {
                 'order_expires_at_sim': utc(shipment.expires_at).isoformat() if shipment.expires_at else None,
@@ -213,7 +218,24 @@ def validate_decision(model):
     return response, bid
 
 
-async def evaluate_model(prepared):
+async def evaluate_model(prepared, *, audit_engine=None):
+    from service import prediction_capture
+    identity = await asyncio.to_thread(prediction_capture.begin_autopilot, audit_engine, prepared) if audit_engine is not None else None
+    try:
+        model, bid = await _evaluate_model(prepared, audit_engine=audit_engine, observation_id=identity)
+        if identity is not None:
+            model['observation_id'] = str(identity)
+            await asyncio.shield(asyncio.to_thread(prediction_capture.finish_autopilot, audit_engine, identity, model))
+        return model, bid
+    except BaseException as exc:
+        if identity is not None:
+            await asyncio.shield(asyncio.to_thread(prediction_capture.finish_autopilot, audit_engine, identity,
+                {**prepared, 'error': 'MODEL_REQUEST_CANCELLED' if isinstance(exc, asyncio.CancelledError)
+                 else 'MODEL_CAPTURE_FAILED', 'decision': 'REVIEW'}))
+        raise
+
+
+async def _evaluate_model(prepared, *, audit_engine=None, observation_id=None):
     from service import autopilot
     model = dict(prepared)
     try:
@@ -223,6 +245,11 @@ async def evaluate_model(prepared):
         async with asyncio.timeout(timeout), autopilot.make_model_client(url, timeout) as client:
             response = await client.post(LIVE_MODEL_PATH if is_live else MODEL_PATH,
                                          json=model['request'], headers=headers)
+            from service.prediction_capture import now as capture_now
+            received_at = capture_now()
+        if observation_id is not None:
+            from service.prediction_capture import response as capture_response
+            await asyncio.shield(asyncio.to_thread(capture_response, audit_engine, observation_id, response, received_at=received_at))
         if response.is_error:
             try:
                 code = response.json().get('detail', {}).get('code', '')

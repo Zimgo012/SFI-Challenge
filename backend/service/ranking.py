@@ -228,7 +228,13 @@ def rank_order(session: Session, shipment: Shipment, context: RankingContext):
     for rank, (_, _, _, match) in enumerate(scored, 1):
         match.rank = rank
     report.ranked_units = [row[3] for row in scored]
-    report.selected = report.ranked_units[0] if report.ranked_units else None
+    # The board chooses the truck on booking. A higher-ranked advisory truck
+    # must not replace that truck in the action preview: the frontend gates
+    # Accept on selected.booking_ready and displays its costs.
+    report.selected = next((match for match in report.ranked_units
+                            if match.unit_id == checked.candidate_unit_id), None)
+    if report.selected is None and report.ranked_units:
+        report.selected = report.ranked_units[0]
     if report.selected is None:
         report.rejection_reasons = routing.rejection_reasons or ['no_feasible_units']
     return report, scored

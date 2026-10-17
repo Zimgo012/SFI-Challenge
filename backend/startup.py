@@ -16,6 +16,7 @@ from service.periodic_sync import periodic_sync, sync_settings
 from service.history_import import sync_history_if_changed
 from service.autopilot import autopilot_worker, recover_runs
 from service.database import get_engine
+from service.simulation_clock_sync import sync_simulation_clock, clock_sync_interval
 
 logger = logging.getLogger(__name__)
 ENV_FILE = Path(__file__).resolve().parent / '.env'
@@ -32,6 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     external_api_url = os.getenv('EXTERNAL_API_URL', '').strip()
 
     settings = sync_settings()
+    clock_sync_interval()
     # Restart/reload never silently resumes an automatically booking session.
     await asyncio.to_thread(recover_autopilot_runs)
     # A configured, invalid CSV fails startup rather than silently serving partial history.
@@ -39,6 +41,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     orders_task = None
     expiration_task = None
     sync_task = None
+    clock_task = None
     if external_api_url:
         connection_state.set('connecting')
         await call_external_api(external_api_url)
@@ -49,6 +52,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             connection_state.set('disabled')
         expiration_task = asyncio.create_task(monitor_expirations(), name='offer-expirations')
         app.state.expiration_task = expiration_task
+        clock_task = asyncio.create_task(sync_simulation_clock(external_api_url), name='simulation-clock')
+        app.state.clock_task = clock_task
     else:
         connection_state.set('disabled')
         logger.info('EXTERNAL_API_URL is unset; skipping external API startup hook.')
@@ -60,7 +65,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        tasks = [task for task in (orders_task, expiration_task, sync_task, autopilot_task) if task is not None]
+        tasks = [task for task in (orders_task, expiration_task, sync_task, clock_task, autopilot_task) if task is not None]
         for task in tasks:
             task.cancel()
         for task in tasks:

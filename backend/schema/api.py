@@ -237,6 +237,7 @@ class ActionRequest(BaseModel):
 
 class BidRequest(ActionRequest):
     bid_rate: PositiveBid
+    price_analysis_id: UUID | None = None
 
 
 class BoardActionResponse(BaseModel):

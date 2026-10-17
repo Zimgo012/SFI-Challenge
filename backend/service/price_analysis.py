@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from dotenv import dotenv_values
 import httpx
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -64,6 +64,7 @@ def prepare_analysis(engine, external_id, request):
     """Read one local snapshot; close its transaction before any model HTTP."""
     try:
         with Session(engine, autoflush=False) as session:
+            session.execute(text('BEGIN'))
             shipment = session.scalar(select(Shipment).where(Shipment.external_id == external_id))
             if shipment is None:
                 raise ProductError(404, 'Order not found')
@@ -78,6 +79,8 @@ def prepare_analysis(engine, external_id, request):
                 lane_resolution=lane, warnings=lane.warnings,
                 deterministic_evaluation=evaluation,
             )
+            from service.live_audit import operational_snapshot
+            result._operational_snapshot = operational_snapshot(session, evaluation.policy)
             features = {field: getattr(shipment, field) for field in (
                 'distance_miles', 'weight_lbs', 'origin_latitude', 'origin_longitude',
                 'destination_latitude', 'destination_longitude', 'origin_state', 'destination_state',
@@ -117,6 +120,22 @@ def make_model_client(url, timeout):
 
 
 async def analyze_price(engine, external_id, request):
+    from service import prediction_capture
+    identity = await asyncio.to_thread(prediction_capture.begin, engine, external_id, request)
+    try:
+        result = await _analyze_price(engine, external_id, request, identity)
+        result.observation_id = identity
+        await asyncio.shield(asyncio.to_thread(prediction_capture.finish, engine, identity, result))
+        return result
+    except BaseException as exc:
+        code = ('ANALYSIS_CANCELLED' if isinstance(exc, asyncio.CancelledError) else
+                'ANALYSIS_REQUEST_REJECTED' if isinstance(exc, ProductError) else 'ANALYSIS_FAILED')
+        await asyncio.shield(asyncio.to_thread(prediction_capture.finish, engine, identity, error=code))
+        raise
+
+
+async def _analyze_price(engine, external_id, request, observation_id):
+    from service import prediction_capture
     result = await asyncio.to_thread(prepare_analysis, engine, external_id, request)
     if result.error is not None:
         return result
@@ -136,13 +155,16 @@ async def analyze_price(engine, external_id, request):
     if policy.enforce_margin and policy.min_expected_margin_pct == 100:
         result.warnings.append('The model warning API cannot express a 100% minimum margin; the backend still enforces that threshold.')
     payload = result.model_request.model_dump(mode='json')
+    await asyncio.to_thread(prediction_capture.prepared, engine, observation_id, result)
     try:
         async with asyncio.timeout(timeout), make_model_client(url, timeout) as client:
             response = await client.post(MODEL_PATH, json=payload, headers={'X-Request-Id': str(request.request_id)})
+            received_at = prediction_capture.now()
     except (TimeoutError, httpx.TimeoutException):
         return unavailable(result, 'MODEL_TIMEOUT', 'Price analysis timed out; deterministic economics remain available.')
     except httpx.RequestError:
         return unavailable(result, 'MODEL_CONNECTION_FAILED', 'The model API is unreachable; deterministic economics remain available.')
+    await asyncio.shield(asyncio.to_thread(prediction_capture.response, engine, observation_id, response, received_at=received_at))
     result.prediction_id = response.headers.get('X-Prediction-Id')
     if response.status_code != 200:
         return unavailable(result, 'MODEL_HTTP_ERROR', 'The model API could not analyze this request; deterministic economics remain available.', http_status=response.status_code)

@@ -31,6 +31,8 @@ class ShipmentFinancialRequest(BaseModel):
     occupied_hours: MeasuredQuantity
     evidence: ActualEvidence
     reported_by: str = Field(min_length=1, max_length=200)
+    actual_cost_scope_complete: bool = Field(default=False, strict=True)
+    completed_at_wall: AwareDatetime | None = None
     cohort_id: UUID | None = None
 
 

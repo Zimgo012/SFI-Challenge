@@ -36,6 +36,8 @@ def project_units(session: Session, units: list[FleetUnit], at: datetime | None 
     from service.allocation_holds import current_holds
     allocation_holds = current_holds(session)
     for hold in session.scalars(select(AssignmentReservation).where(AssignmentReservation.unit_id.in_(holds))):
+        if hold.action_id == session.info.get('dispatch_action_id'):
+            continue
         holds[hold.unit_id].append(hold)
     rows = session.execute(select(Assignment, Shipment).join(
         Shipment, Shipment.shipment_id == Assignment.shipment_id,

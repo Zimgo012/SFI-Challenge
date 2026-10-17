@@ -11,6 +11,10 @@ from controller.load_controller import router as load_router
 from controller.overview_controller import router as overview_router
 from controller.price_analysis_controller import router as price_analysis_router
 from controller.autopilot_controller import router as autopilot_router
+from controller.analytics_controller import router as analytics_router
+from controller.live_audit_controller import router as live_audit_router
+from controller.monitoring_controller import router as monitoring_router
+from controller.allocation_controller import router as allocation_router
 from controller.shipment_controller import router as shipment_router
 from controller.system_controller import router as system_router
 from controller.terminal_controller import router as terminal_router
@@ -31,6 +35,10 @@ app.include_router(overview_router)
 app.include_router(system_router)
 app.include_router(price_analysis_router)
 app.include_router(autopilot_router)
+app.include_router(analytics_router)
+app.include_router(live_audit_router)
+app.include_router(monitoring_router)
+app.include_router(allocation_router)
 
 
 @app.exception_handler(ProductError)

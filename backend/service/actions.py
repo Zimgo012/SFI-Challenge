@@ -3,6 +3,7 @@ import os
 from datetime import datetime, timezone
 from decimal import Decimal
 from urllib.parse import quote, urlsplit
+from uuid import UUID
 
 import httpx
 from dotenv import dotenv_values
@@ -63,6 +64,8 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
             if autopilot_attempt_id is not None:
                 from schema.autopilot_attempt import AutopilotAttempt
                 attempt = session.get(AutopilotAttempt, autopilot_attempt_id)
+                if attempt is None:
+                    raise ProductError(409, 'Autopilot attempt not found')
                 session.info['allocation_plan_id'] = attempt.allocation_plan_id if attempt else None
             shipment = session.scalar(select(Shipment).where(Shipment.external_id == external_id))
             if shipment is None:
@@ -79,10 +82,13 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
             if kind == 'decline' and seconds_remaining(shipment.expires_at, simulated_now(clock)) == 0:
                 raise ProductError(409, 'Order has expired')
             evaluation = None
+            submission_audit = None
             if kind in ('accept', 'bid'):
                 checked = evaluate_dispatch(session, shipment, getattr(request, 'bid_rate', None))
                 evaluation = save_evaluation(session, shipment, checked)
                 if autopilot_attempt_id is not None:
+                    from service.live_audit import start_submission
+                    submission_audit = start_submission(session, attempt, shipment, request, checked)
                     from service.autopilot_guards import authorize_attempt
                     denial = authorize_attempt(session, autopilot_attempt_id, shipment, checked, request)
                 if denial is None and not checked.eligible:
@@ -93,6 +99,13 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
                     add_activity(session, 'dispatch.rejected', denial.detail,
                                  shipment_id=shipment.shipment_id,
                                  details={'evaluation_id': str(evaluation.evaluation_id)})
+                if denial is not None and submission_audit is not None:
+                    submission_audit.status = 'rejected'
+                    submission_audit.authorization_passed = False
+                    submission_audit.operational_checks_passed = checked.eligible
+                    submission_audit.atomic_reservation_acquired = False
+                    submission_audit.result = {'message': denial.detail, 'evaluation': checked.model_dump(mode='json'),
+                                               'sent_to_board': False}
             if denial is None:
                 if kind == 'bid':
                     shipment.bid_history_deleted_at = None
@@ -104,9 +117,21 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
                 )
                 session.add(action)
                 session.flush()
+                if kind == 'bid' and getattr(request, 'price_analysis_id', None) is not None:
+                    from service.prediction_capture import attach_execution
+                    attach_execution(session, request.price_analysis_id, shipment, request, action)
+                if submission_audit is not None:
+                    submission_audit.action_id = action.action_id
                 if autopilot_attempt_id is not None:
                     from service.autopilot_guards import attach_action
                     attach_action(session, autopilot_attempt_id, action.action_id)
+                    identity = attempt.model_snapshot.get('observation_id')
+                    if identity:
+                        from schema.prediction_observation import PredictionObservation
+                        original = session.get(PredictionObservation, UUID(identity))
+                        original.executions = original.executions + [{'action_id': str(action.action_id),
+                            'requested_at_wall': action.requested_at.isoformat(), 'bid_rate': str(action.bid_rate),
+                            'evaluation_id': str(action.evaluation_id), 'request_status': action.request_status}]
                 if evaluation is not None:
                     session.add(AssignmentReservation(
                         action_id=action.action_id, unit_id=evaluation.candidate_unit_id,
@@ -114,6 +139,8 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
                         created_at=datetime.now(timezone.utc),
                     ))
                     session.flush()
+                    if submission_audit is not None:
+                        submission_audit.atomic_reservation_acquired = True
                 if autopilot_attempt_id is not None:
                     from service.autopilot_guards import record_authorized_snapshot
                     record_authorized_snapshot(session, autopilot_attempt_id)
@@ -132,7 +159,7 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
         raise
 
 
-def finish_action(engine, action_id, status, message, board_http_status=None):
+def finish_action(engine, action_id, status, message, board_http_status=None, board_response=None):
     with Session(engine) as session, session.begin():
         action = session.get(DispatchAction, action_id)
         if session.get(Shipment, action.shipment_id).board_retired_at is not None:
@@ -145,6 +172,10 @@ def finish_action(engine, action_id, status, message, board_http_status=None):
         action.board_message = message
         action.board_http_status = board_http_status
         action.resolved_at = datetime.now(timezone.utc) if status != 'unknown' else None
+        from service.live_audit import update_submission_result
+        update_submission_result(session, action, board_response)
+        from service.prediction_capture import execution_result
+        execution_result(session, action, session.get(Shipment, action.shipment_id))
         add_activity(session, f'action.{status}', message,
                      shipment_id=action.shipment_id, action_id=action_id,
                      details={'board_http_status': board_http_status})
@@ -166,14 +197,14 @@ def result(engine, external_id, action_id, sync_pending):
 async def execute_action(engine: Engine, external_id: str, kind: str, request: ActionRequest, *, autopilot_attempt_id=None) -> ActionResult:
     url = board_url()
     action_id = await asyncio.to_thread(begin_action, engine, external_id, kind, request, autopilot_attempt_id=autopilot_attempt_id)
-    if autopilot_attempt_id is not None:
-        from service.autopilot_guards import before_send
-        await asyncio.to_thread(before_send, engine, autopilot_attempt_id, action_id)
     try:
         async with make_board_client(url) as client:
+            if autopilot_attempt_id is not None:
+                from service.autopilot_guards import before_send
+                await asyncio.to_thread(before_send, engine, autopilot_attempt_id, action_id)
             response = await client.post(
                 'orders/' + quote(external_id, safe='') + '/' + kind,
-                json=request.model_dump(mode='json', exclude_none=True),
+                json=request.model_dump(mode='json', exclude_none=True, exclude={'price_analysis_id'}),
             )
     except httpx.HTTPError as exc:
         await asyncio.to_thread(finish_action, engine, action_id, 'unknown',
@@ -192,7 +223,7 @@ async def execute_action(engine: Engine, external_id: str, kind: str, request: A
         except (ValueError, AttributeError):
             message = 'Board rejected the action'
         request_status = 'failed' if response.status_code < 500 else 'unknown'
-        await asyncio.to_thread(finish_action, engine, action_id, request_status, message, response.status_code)
+        await asyncio.to_thread(finish_action, engine, action_id, request_status, message, response.status_code, response.text)
         feedback = None
         if response.status_code in (400, 404, 409):
             sync_pending = False
@@ -224,11 +255,12 @@ async def execute_action(engine: Engine, external_id: str, kind: str, request: A
         if body.order.status not in expected_statuses[kind]:
             raise ValueError('Board action response did not establish the expected outcome')
     except (ValueError, ValidationError) as exc:
-        await asyncio.to_thread(finish_action, engine, action_id, 'unknown', 'Invalid board action response', response.status_code)
+        await asyncio.to_thread(finish_action, engine, action_id, 'unknown', 'Invalid board action response', response.status_code, response.text)
         raise ProductError(502, 'Board action response could not be verified; reconciliation required') from exc
     try:
         await asyncio.to_thread(persist_orders, engine, [body.order])
-        await asyncio.to_thread(finish_action, engine, action_id, 'succeeded', body.message, response.status_code)
+        await asyncio.to_thread(finish_action, engine, action_id, 'succeeded', body.message, response.status_code,
+                                response.json())
     except Exception as exc:
         await asyncio.to_thread(finish_action, engine, action_id, 'unknown', 'Board replied successfully but local persistence failed', response.status_code)
         raise ProductError(502, 'Board accepted the request; local reconciliation is required') from exc

@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 from schema.dispatch_policy import DispatchEvaluation
 from schema.money import PositiveBid
@@ -143,6 +143,8 @@ class ModelLaneResolution(BaseModel):
 
 
 class PriceAnalysisResult(BaseModel):
+    _operational_snapshot: dict = PrivateAttr(default_factory=dict)
+    observation_id: UUID | None = None
     request_id: UUID
     external_id: str
     bid_rate: Decimal
