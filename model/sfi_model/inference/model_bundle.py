@@ -55,7 +55,14 @@ def load_model_bundle(path: Path) -> LoadedFreightModel:
     if manifest["schema_version"] != 1 or manifest["bundle_id"] != bundle_identity(manifest):
         raise ValueError("Invalid model bundle manifest/identity")
     check_version(manifest["model_version"])
-    if manifest["runtime_versions"] != {**runtime_versions(), "torch": str(torch.__version__)}:
+    # PyTorch's Linux wheels append a platform build tag (e.g. +cu130 or +cpu).
+    # We load weights on CPU; require the same release across platforms while
+    # retaining exact checks for every other dependency and all artifact hashes.
+    expected_runtime = dict(manifest["runtime_versions"])
+    if "torch" in expected_runtime:
+        expected_runtime["torch"] = expected_runtime["torch"].partition("+")[0]
+    actual_runtime = {**runtime_versions(), "torch": str(torch.__version__).partition("+")[0]}
+    if expected_runtime != actual_runtime:
         raise ValueError("Model bundle dependency versions differ; use the locked environment")
     if manifest["model_code_sha256"] != sha256(PROJECT_ROOT / MODEL_CODE):
         raise ValueError("Model implementation differs from the saved bundle")

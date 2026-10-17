@@ -23,4 +23,4 @@ dev = []
 package = false
 
 [tool.uv.sources]
-sfi-model = { path = "../project-model/model", editable = true }
+sfi-model = { path = "../model", editable = true }
