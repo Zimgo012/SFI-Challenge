@@ -133,6 +133,15 @@ class PriceAnalysisError(BaseModel):
     fields: list[str] = Field(default_factory=list)
 
 
+class ModelLaneResolution(BaseModel):
+    lane_id: str | None
+    source: Literal['request', 'board_terminal_codes', 'linked_terminal_codes', 'nearest_terminal_codes', 'missing']
+    origin_terminal_code: str | None = None
+    destination_terminal_code: str | None = None
+    terminal_sources: dict[str, Literal['board_terminal_code', 'linked_terminal', 'nearest_terminal', 'missing']] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class PriceAnalysisResult(BaseModel):
     request_id: UUID
     external_id: str
@@ -140,7 +149,8 @@ class PriceAnalysisResult(BaseModel):
     requested_unit_id: UUID | None
     order_last_synced_at: datetime | None
     analyzed_at_wall: datetime
-    lane_id_source: Literal['request', 'board_terminal_codes', 'missing']
+    lane_id_source: Literal['request', 'board_terminal_codes', 'linked_terminal_codes', 'nearest_terminal_codes', 'missing']
+    lane_resolution: ModelLaneResolution | None = None
     deterministic_evaluation: DispatchEvaluation
     model_request: ModelManualRequest | None = None
     model_response: ModelManualResponse | None = None

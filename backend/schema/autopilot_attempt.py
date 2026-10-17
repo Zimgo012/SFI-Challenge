@@ -32,3 +32,4 @@ class AutopilotAttempt(Base):
     created_at_wall: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     decided_at_wall: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at_wall: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    allocation_plan_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('fleet_allocation_plans.plan_id'))

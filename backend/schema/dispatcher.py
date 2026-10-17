@@ -13,7 +13,9 @@ from schema.simulation_clock import SimulationClock
 from schema.fleet_capacity import FleetCapacity
 from schema.activity import Activity
 from schema.autopilot_run import AutopilotRun
+from schema.allocation_plan import AllocationPlan, AllocationReservation
 from schema.autopilot_attempt import AutopilotAttempt
+from schema.observed_cohort import ObservedCohort, ObservedComparison
 
 __all__ = [
     'Base',
@@ -30,4 +32,8 @@ __all__ = [
     'Activity',
     'AutopilotRun',
     'AutopilotAttempt',
+    'AllocationPlan',
+    'AllocationReservation',
+    'ObservedCohort',
+    'ObservedComparison',
 ]

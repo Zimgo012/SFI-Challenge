@@ -25,6 +25,19 @@ class AutopilotSettings(BaseModel):
     max_decision_age_seconds: int = Field(default=30, ge=1, le=120, strict=True)
     max_consecutive_errors: int = Field(default=3, ge=1, le=100, strict=True)
     allow_baseline: bool = False
+    model_baseline_id: str | None = Field(default=None, min_length=1)
+    model_baseline_version: str | None = Field(default=None, min_length=1)
+    model_min_lane_samples: int | None = Field(default=None, ge=1, strict=True)
+    allocation_enabled: bool = True
+    model_batch_enabled: bool = True
+    model_batch_strategy: Literal['best_order', 'fleet_allocation'] = 'fleet_allocation'
+    collection_window_seconds: float = Field(default=0, ge=0, le=300, allow_inf_nan=False)
+    allocation_max_candidates: int = Field(default=12, ge=1, le=30, strict=True)
+    allocation_max_nodes: int = Field(default=2000, ge=1, le=100000, strict=True)
+    allocation_max_seconds: float = Field(default=2, ge=.05, le=10, allow_inf_nan=False)
+    allocation_submission_seconds: float = Field(default=20, ge=1, le=120, allow_inf_nan=False)
+    allocation_expiry_buffer_seconds: float = Field(default=1, ge=0, le=60, allow_inf_nan=False)
+    allocation_reservation_ttl_seconds: int = Field(default=30, ge=1, le=120, strict=True)
 
     @model_validator(mode='after')
     def valid_types(self):
@@ -32,12 +45,16 @@ class AutopilotSettings(BaseModel):
             raise ValueError('Enable at least one booking type')
         if self.enable_open_bid and self.max_bid_rate is None:
             raise ValueError('max_bid_rate is required when open bids are enabled')
+        if self.collection_window_seconds > 0 and not self.allocation_enabled:
+            raise ValueError('collection_window_seconds requires allocation_enabled=true')
+        if self.model_batch_enabled and not self.allocation_enabled:
+            raise ValueError('model_batch_enabled requires allocation_enabled=true')
         return self
 
 
 class StartAutopilotRequest(AutopilotSettings):
     run_id: UUID = Field(default_factory=uuid4)
-    mode: Literal['shadow', 'live'] = 'shadow'
+    mode: Literal['live'] = 'live'
 
 
 class AutopilotRunView(View):
@@ -57,6 +74,14 @@ class AutopilotRunView(View):
     seconds_remaining: float
     inflight_attempt_ids: list[UUID]
     submissions_enabled: bool
+    model_decision_mode: Literal['shadow', 'live']
+    model_live_submission_supported: bool
+    model_live_auth_configured: bool
+    open_bid_submissions_enabled: bool
+    fixed_rate_submissions_enabled: bool
+    collection_plan_id: UUID | None
+    collection_seconds_remaining: float
+    collected_order_count: int
 
 
 class AutopilotAttemptView(View):
@@ -77,3 +102,4 @@ class AutopilotAttemptView(View):
     created_at_wall: datetime
     decided_at_wall: datetime | None
     finished_at_wall: datetime | None
+    allocation_plan_id: UUID | None = None

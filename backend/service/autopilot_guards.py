@@ -37,6 +37,8 @@ def stop_run_record(session, run, reason):
         run.status, run.stop_reason, run.stopped_at_wall = 'stopped', reason, wall_now()
         add_activity(session, 'autopilot.stopped', f'Autopilot stopped: {reason}',
                      details={'run_id': str(run.run_id), 'reason': reason})
+        from service.allocation_holds import cancel_plans
+        cancel_plans(session, reason, run.run_id, include_collecting=True)
 
 
 def refresh_loss(session, run):
@@ -75,7 +77,9 @@ def check_run_limits(session, run):
         AutopilotAttempt.run_id == run.run_id, AutopilotAttempt.status.in_(INFLIGHT),
     )) is not None
     reason = None
-    if wall_now() >= utc(run.deadline_at_wall):
+    if run.mode != 'live':
+        reason = 'unsupported_mode'
+    elif wall_now() >= utc(run.deadline_at_wall):
         reason = 'time_limit_reached'
     elif run.mode == 'live' and not live_enabled():
         reason = 'live_disabled'
@@ -134,6 +138,25 @@ def authorize_attempt(session, attempt_id, shipment, checked, request):
     stopped = check_run_limits(session, run)
     config = AutopilotSettings.model_validate(run.settings)
     reasons = []
+    if config.model_batch_enabled and attempt.model_snapshot.get('kind') != 'batch':
+        reasons.append('MODEL_BATCH_SELECTION_MISSING')
+    if attempt.allocation_plan_id is not None:
+        from schema.allocation_plan import AllocationPlan, AllocationReservation
+        plan = session.get(AllocationPlan, attempt.allocation_plan_id)
+        hold = session.scalar(select(AllocationReservation).where(
+            AllocationReservation.plan_id == attempt.allocation_plan_id,
+            AllocationReservation.shipment_id == shipment.shipment_id,
+            AllocationReservation.status == 'reserved'))
+        if (plan is None or plan.status != 'reserved' or hold is None or
+                hold.expires_at_wall is None or utc(hold.expires_at_wall) <= wall_now() or
+                hold.unit_id != checked.candidate_unit_id or checked.occupied_window is None or
+                utc(hold.busy_from) != checked.occupied_window.occupied_from or
+                utc(hold.busy_until) != checked.occupied_window.occupied_until):
+            reasons.append('allocation_reservation_stale_or_changed')
+        if shipment.order_type == 'open_bid' or attempt.model_snapshot.get('kind') == 'batch':
+            quoted_at = attempt.model_snapshot.get('checked_at_wall')
+            if quoted_at is None or not -5 <= (wall_now() - utc(datetime.fromisoformat(quoted_at))).total_seconds() <= config.max_decision_age_seconds:
+                reasons.append('autopilot_model_quote_stale')
     if stopped or run.mode != 'live' or attempt.status != 'ready' or attempt.action_id is not None:
         reasons.append('autopilot_not_authorized')
     if run.orders_reserved >= config.max_orders:
@@ -147,6 +170,23 @@ def authorize_attempt(session, attempt_id, shipment, checked, request):
     if bid != attempt.bid_rate or checked.candidate_unit_id != attempt.candidate_unit_id:
         reasons.append('autopilot_candidate_changed')
     reasons.extend(candidate_rejections(session, run, shipment, checked, bid))
+    if shipment.order_type == 'open_bid' or attempt.model_snapshot.get('kind') == 'batch':
+        from service.model_autopilot import decision_rejections, matches_evaluation, prepare_decision
+        try:
+            reasons.extend(decision_rejections(attempt.model_snapshot, run.mode))
+            if not matches_evaluation(attempt.model_snapshot, checked):
+                reasons.append('MODEL_CONTEXT_CHANGED')
+            if attempt.model_snapshot['request']['mode'] == 'live':
+                from service.fleet_allocation import fingerprint
+                expected = (plan.snapshot_fingerprint if attempt.allocation_plan_id is not None and plan is not None
+                            else attempt.model_snapshot['request']['backend_context']['snapshot_version'])
+                if fingerprint(session) != expected:
+                    reasons.append('MODEL_SNAPSHOT_CHANGED')
+                current = prepare_decision(session, shipment, checked, config, expected, run=run)
+                if current['request']['policy'] != attempt.model_snapshot['request']['policy']:
+                    reasons.append('MODEL_POLICY_CHANGED')
+        except (ValueError, KeyError, TypeError):
+            reasons.append('MODEL_DECISION_INVALID_OR_MISSING')
     attempt.evaluation_snapshot = checked.model_dump(mode='json')
     if reasons:
         attempt.reason_codes = sorted(set(reasons))
@@ -160,9 +200,26 @@ def attach_action(session, attempt_id, action_id):
     run = session.get(AutopilotRun, attempt.run_id)
     attempt.action_id, attempt.status = action_id, 'submitting'
     run.orders_reserved += 1
+    if attempt.allocation_plan_id:
+        from schema.allocation_plan import AllocationReservation
+        hold = session.scalar(select(AllocationReservation).where(
+            AllocationReservation.plan_id == attempt.allocation_plan_id,
+            AllocationReservation.shipment_id == attempt.shipment_id))
+        hold.action_id, hold.status, hold.expires_at_wall = action_id, 'submitting', None
     add_activity(session, 'autopilot.action_reserved', 'Autopilot reserved an order-limit slot',
                  shipment_id=attempt.shipment_id, action_id=action_id,
                  details={'run_id': str(run.run_id), 'attempt_id': str(attempt_id), 'orders_reserved': run.orders_reserved})
+
+
+def record_authorized_snapshot(session, attempt_id):
+    """Capture state after our own action/holds are flushed, inside booking's lock."""
+    attempt = session.get(AutopilotAttempt, attempt_id)
+    if attempt.order_type == 'open_bid' or attempt.model_snapshot.get('kind') == 'batch':
+        from service.fleet_allocation import fingerprint
+        attempt.model_snapshot = attempt.model_snapshot | {
+            'authorized_snapshot_fingerprint': fingerprint(session),
+            'backend_authorized_at_wall': wall_now().isoformat(),
+        }
 
 
 def before_send(engine, attempt_id, action_id):
@@ -172,12 +229,43 @@ def before_send(engine, attempt_id, action_id):
         attempt = session.get(AutopilotAttempt, attempt_id)
         run = session.get(AutopilotRun, attempt.run_id)
         stopped = check_run_limits(session, run)
-        if stopped or attempt.action_id != action_id or attempt.status != 'submitting':
-            action = session.get(DispatchAction, action_id)
-            action.request_status, action.resolved_at = 'failed', wall_now()
-            action.board_message = 'Autopilot stopped before board submission'
+        allocation_changed = False
+        if attempt.allocation_plan_id:
+            from schema.allocation_plan import AllocationPlan
+            allocation_changed = session.get(AllocationPlan, attempt.allocation_plan_id).status != 'reserved'
+        model_rejections = []
+        if AutopilotSettings.model_validate(run.settings).model_batch_enabled and attempt.model_snapshot.get('kind') != 'batch':
+            model_rejections.append('MODEL_BATCH_SELECTION_MISSING')
+        if attempt.order_type == 'open_bid' or attempt.model_snapshot.get('kind') == 'batch':
+            from service.model_autopilot import decision_rejections, live_model_token, prepare_decision
+            try:
+                live_model_token()
+            except ValueError:
+                model_rejections.append('MODEL_LIVE_AUTH_TOKEN_MISSING_OR_INVALID')
+            try:
+                model_rejections.extend(decision_rejections(attempt.model_snapshot, run.mode))
+                from service.fleet_allocation import fingerprint
+                if fingerprint(session) != attempt.model_snapshot.get('authorized_snapshot_fingerprint'):
+                    model_rejections.append('MODEL_SNAPSHOT_CHANGED')
+                from schema.dispatch_policy import DispatchEvaluation
+                checked = DispatchEvaluation.model_validate(attempt.evaluation_snapshot)
+                current = prepare_decision(session, session.get(Shipment, attempt.shipment_id), checked,
+                    AutopilotSettings.model_validate(run.settings), 'pre-submit', run=run)
+                if current['request']['policy'] != attempt.model_snapshot['request']['policy']:
+                    model_rejections.append('MODEL_POLICY_CHANGED')
+            except (ValueError, KeyError, TypeError):
+                model_rejections.append('MODEL_DECISION_INVALID_OR_EXPIRED')
+        action = session.get(DispatchAction, action_id)
+        if (stopped or allocation_changed or model_rejections or attempt.action_id != action_id
+                or attempt.status != 'submitting' or action.request_status != 'submitting'):
+            message = ('Autopilot model approval rejected before board submission: ' + ', '.join(model_rejections)
+                       if model_rejections else 'Autopilot stopped before board submission')
+            if action.request_status == 'submitting':
+                action.request_status, action.resolved_at, action.board_message = 'failed', wall_now(), message
+            if model_rejections:
+                attempt.reason_codes = sorted(set([*attempt.reason_codes, *model_rejections]))
             release_resolved_reservations(session)
-            denial = ProductError(409, action.board_message)
+            denial = ProductError(409, message)
     if denial:
         raise denial
 

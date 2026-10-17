@@ -41,6 +41,7 @@ class UnitProjection(BaseModel):
     deliveries: list[ProjectedDelivery] = Field(default_factory=list)
     unverified_assignment_ids: list[UUID] = Field(default_factory=list)
     uncertain_action_ids: list[UUID] = Field(default_factory=list)
+    uncertain_allocation_ids: list[UUID] = Field(default_factory=list)
     rejection_reasons: list[str] = Field(default_factory=list)
 
 

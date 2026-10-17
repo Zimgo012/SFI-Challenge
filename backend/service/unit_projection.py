@@ -12,6 +12,7 @@ from schema.shipment import Shipment
 from schema.simulation_clock import SimulationClock
 from schema.terminal import Terminal
 from schema.unit_projection import ProjectedDelivery, UnitProjection
+from schema.scheduling import PendingBidHold
 from service.errors import ProductError
 from service.expiration import simulated_now, utc
 from service.geography import nearest_terminal, valid_coordinates
@@ -32,6 +33,8 @@ def project_units(session: Session, units: list[FleetUnit], at: datetime | None 
     now = simulated_now(clock) if clock else None
     bookings = {unit.unit_id: [] for unit in units}
     holds = {unit.unit_id: [] for unit in units}
+    from service.allocation_holds import current_holds
+    allocation_holds = current_holds(session)
     for hold in session.scalars(select(AssignmentReservation).where(AssignmentReservation.unit_id.in_(holds))):
         holds[hold.unit_id].append(hold)
     rows = session.execute(select(Assignment, Shipment).join(
@@ -158,7 +161,11 @@ def project_units(session: Session, units: list[FleetUnit], at: datetime | None 
             projection.terminal_id = projection.terminal_code = None
             projection.rejection_reasons.append('prior_assignment_destination_unverified')
         projection.uncertain_action_ids = [hold.action_id for hold in holds[unit.unit_id] if utc(hold.busy_from) <= projection.at]
-        if projection.uncertain_action_ids:
+        projection.uncertain_action_ids.extend(hold.action_id for hold in allocation_holds
+            if isinstance(hold, PendingBidHold) and hold.unit_id == unit.unit_id and utc(hold.busy_from) <= projection.at)
+        projection.uncertain_allocation_ids = [hold.reservation_id for hold in allocation_holds
+                                              if not isinstance(hold, PendingBidHold) and hold.unit_id == unit.unit_id and utc(hold.busy_from) <= projection.at]
+        if projection.uncertain_action_ids or projection.uncertain_allocation_ids:
             projection.status = 'unknown'
             projection.source = 'unknown'
             projection.latitude = projection.longitude = None

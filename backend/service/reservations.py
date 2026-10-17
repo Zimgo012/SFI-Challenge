@@ -35,3 +35,5 @@ def release_resolved_reservations(session: Session) -> None:
             add_activity(session, 'reservation.released', 'Submission reservation resolved',
                          shipment_id=shipment.shipment_id, action_id=action.action_id)
     session.flush()
+    from service.allocation_holds import reconcile_holds
+    reconcile_holds(session)

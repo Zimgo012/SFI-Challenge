@@ -177,6 +177,7 @@ class ActivityView(View):
 
 
 class LoadDetail(LoadView):
+    financial_outcome: dict | None = Field(default=None, description='Reported actual amounts and evidence; separate from booking-time estimates.')
     actions: list[ActionView]
     actual_assignment: AssignmentView | None
     latest_evaluation: EvaluationView | None

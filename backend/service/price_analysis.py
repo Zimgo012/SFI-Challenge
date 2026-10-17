@@ -21,6 +21,7 @@ from schema.shipment import Shipment
 from service.database import PROJECT_ROOT
 from service.dispatch_policy import evaluate_dispatch
 from service.errors import ProductError
+from service.model_lane import resolve_model_lane
 
 MODEL_PATH = 'api/v1/manual-mode/evaluate'
 
@@ -69,18 +70,12 @@ def prepare_analysis(engine, external_id, request):
             if shipment.order_type != 'open_bid':
                 raise ProductError(422, 'The configured price model supports open-bid orders only')
             evaluation = evaluate_dispatch(session, shipment, request.bid_rate, request.unit_id)
-            lane = request.lane_id
-            source = 'request' if lane else 'missing'
-            codes = [(code or '').strip().upper() for code in (
-                shipment.origin_terminal_code, shipment.destination_terminal_code,
-            )]
-            if lane is None and all(code.lower() not in ('', 'na', 'n/a', 'null', 'none', 'nan') for code in codes):
-                lane = '-'.join(codes)
-                source = 'board_terminal_codes'
+            lane = resolve_model_lane(session, shipment, request.lane_id)
             result = PriceAnalysisResult(
                 request_id=request.request_id, external_id=external_id, bid_rate=request.bid_rate,
                 requested_unit_id=request.unit_id, order_last_synced_at=shipment.last_synced_at,
-                analyzed_at_wall=datetime.now(timezone.utc), lane_id_source=source,
+                analyzed_at_wall=datetime.now(timezone.utc), lane_id_source=lane.source,
+                lane_resolution=lane, warnings=lane.warnings,
                 deterministic_evaluation=evaluation,
             )
             features = {field: getattr(shipment, field) for field in (
@@ -92,11 +87,13 @@ def prepare_analysis(engine, external_id, request):
                 if features[field] is not None:
                     features[field] = float(features[field])
             try:
-                shipment_features = ModelShipmentFeatures(**features, lane_id=lane)
+                shipment_features = ModelShipmentFeatures(**features, lane_id=lane.lane_id)
             except ValidationError as exc:
                 fields = sorted({'.'.join(str(part) for part in item['loc']) for item in exc.errors()})
-                return unavailable(result, 'MODEL_INPUTS_MISSING_OR_INVALID',
-                                   'Correct the missing or invalid shipment features before requesting model advice.', fields=fields)
+                message = ('Cannot resolve the model lane. Sync terminals and correct the shipment endpoint coordinates, '
+                           'or supply an explicit lane_id.' if 'lane_id' in fields else
+                           'Correct the missing or invalid shipment features before requesting model advice.')
+                return unavailable(result, 'MODEL_INPUTS_MISSING_OR_INVALID', message, fields=fields)
             try:
                 economics = evaluation.economics
                 result.model_request = ModelManualRequest(

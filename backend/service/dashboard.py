@@ -134,6 +134,7 @@ def load_detail(session: Session, external_id: str) -> LoadDetail:
     actions = session.scalars(select(DispatchAction).where(DispatchAction.shipment_id == row.shipment_id).order_by(DispatchAction.requested_at.desc())).all()
     return LoadDetail(
         **load_view(row, clock_time(session), session).model_dump(),
+        financial_outcome=row.financial_outcome,
         actions=[ActionView.model_validate(action) for action in actions],
         actual_assignment=AssignmentView.model_validate(assignment) if assignment else None,
         latest_evaluation=EvaluationView.model_validate(evaluation) if evaluation else None,

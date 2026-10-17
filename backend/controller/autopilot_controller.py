@@ -7,14 +7,16 @@ from sqlalchemy import Engine
 from controller.dependencies import Limit, Offset
 from schema.api import Page
 from schema.autopilot import AutopilotAttemptView, AutopilotRunView, StartAutopilotRequest
+from schema.fleet_allocation import AllocationPlanView
 from service import autopilot
+from service.allocation_dispatch import list_plans
 from service.database import get_engine
 
 router = APIRouter(prefix='/api/autopilot', tags=['Autopilot'])
 DatabaseEngine = Annotated[Engine, Depends(get_engine)]
 
 
-@router.post('/runs', response_model=AutopilotRunView)
+@router.post('/runs', response_model=AutopilotRunView, summary='Start a live autopilot run')
 def start_run(body: StartAutopilotRequest, engine: DatabaseEngine):
     return autopilot.start_run(engine, body)
 
@@ -37,3 +39,8 @@ def stop_run(run_id: UUID, engine: DatabaseEngine):
 @router.get('/runs/{run_id}/attempts', response_model=Page[AutopilotAttemptView])
 def attempts(run_id: UUID, engine: DatabaseEngine, limit: Limit = 50, offset: Offset = 0):
     return autopilot.list_attempts(engine, run_id, limit, offset)
+
+
+@router.get('/runs/{run_id}/allocations', response_model=Page[AllocationPlanView])
+def allocations(run_id: UUID, engine: DatabaseEngine, limit: Limit = 50, offset: Offset = 0):
+    return list_plans(engine, run_id, limit, offset)

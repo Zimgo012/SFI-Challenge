@@ -2,13 +2,15 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, Numeric, Text, Uuid
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, JSON, Numeric, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from schema.base import Base
 
 
 class Shipment(Base):
+    financial_outcome: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    observed_cohort_id: Mapped[UUID | None] = mapped_column(Uuid, ForeignKey('observed_cohorts.cohort_id'), index=True, nullable=True)
     shipment_history_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     bid_history_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     board_retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

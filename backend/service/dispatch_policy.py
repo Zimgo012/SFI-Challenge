@@ -53,12 +53,12 @@ def dispatch_policy() -> DispatchPolicy:
         raise ProductError(503, 'Invalid dispatcher policy configuration; check margin, weight, timing, speed, and freshness settings') from exc
 
 
-def evaluate_dispatch(session: Session, shipment: Shipment, bid_rate=None, unit_id=None, routing=None, adjustment_context=None) -> DispatchEvaluation:
+def evaluate_dispatch(session: Session, shipment: Shipment, bid_rate=None, unit_id=None, routing=None, adjustment_context=None, *, at_sim_time=None) -> DispatchEvaluation:
     policy = dispatch_policy()
     clock = session.get(SimulationClock, 1)
     if clock is None:
         raise ProductError(503, 'Simulation clock has not been synced yet')
-    now = simulated_now(clock)
+    now = at_sim_time if at_sim_time is not None else simulated_now(clock)
     routing = routing or evaluate_pickup_routing(session, shipment)
     candidate_id = unit_id or routing.routing_candidate_unit_id
     unit = session.get(FleetUnit, candidate_id) if candidate_id else None

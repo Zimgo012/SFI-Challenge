@@ -55,6 +55,8 @@ def expire_due_offers(session: Session, wall_now: datetime | None = None) -> lis
     expired = session.execute(statement).all()
     if expired:
         from service.activity import add_activity
+        from service.allocation_holds import cancel_plans
+        cancel_plans(session, 'orders_expired')
         for shipment_id, external_id in expired:
             add_activity(session, 'order.expired', f'Order {external_id}: expired',
                          shipment_id=shipment_id, details={'source': 'simulated_clock'})

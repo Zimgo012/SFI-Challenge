@@ -6,6 +6,7 @@ from sqlalchemy.exc import OperationalError
 from schema.activity import Activity
 from schema.assignment import ACTIVE_ASSIGNMENT_STATUSES, Assignment
 from schema.assignment_reservation import AssignmentReservation
+from schema.allocation_plan import AllocationReservation
 from schema.dispatch_action import DispatchAction
 from schema.history_cleanup import HistoryCleanupResult
 from schema.shipment import Shipment
@@ -38,7 +39,10 @@ def inactive_history(session):
                 Assignment.occupied_until > now if now is not None else True
             )),
     ).exists()
-    return ~unresolved & ~holds & ~locks
+    allocation_holds = select(AllocationReservation.reservation_id).where(
+        AllocationReservation.shipment_id == Shipment.shipment_id,
+    ).exists()
+    return ~unresolved & ~holds & ~locks & ~allocation_holds
 
 
 def cleanup_statements(session, resource, external_id, event_type, scope='order_history'):

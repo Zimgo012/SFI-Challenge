@@ -1,11 +1,8 @@
 import asyncio
 from contextlib import contextmanager
 from datetime import timedelta
-from decimal import Decimal, ROUND_HALF_UP
-import json
 import logging
 
-import httpx
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -15,7 +12,6 @@ from schema.autopilot import AutopilotAttemptView, AutopilotRunView, AutopilotSe
 from schema.autopilot_attempt import AutopilotAttempt
 from schema.autopilot_run import AutopilotRun
 from schema.dispatch_action import DispatchAction
-from schema.price_analysis import ModelPriceAdvice, ModelShipmentFeatures
 from schema.shipment import Shipment
 from service.actions import execute_action
 from service.activity import add_activity
@@ -28,6 +24,7 @@ from service.errors import ProductError
 from service.expiration import utc
 from service.price_analysis import analysis_settings, make_model_client
 from service.ranking import recommendations
+from service.model_lane import model_shipment_features
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +40,17 @@ def transaction(engine):
 
 def run_view(session, run):
     remaining = max(0, (utc(run.deadline_at_wall) - wall_now()).total_seconds()) if run.status == 'running' else 0
+    from service.model_autopilot import live_model_token
+    try:
+        live_model_token()
+        auth_configured = True
+    except ValueError:
+        auth_configured = False
+    config = AutopilotSettings.model_validate(run.settings)
+    live = run.mode == 'live' and run.status == 'running' and live_enabled()
+    fixed_enabled = live and config.enable_fixed_rate and (auth_configured or not config.model_batch_enabled)
+    bids_enabled = live and config.enable_open_bid and auth_configured
+    from service.order_collection import collection_view
     return AutopilotRunView(
         **{field: getattr(run, field) for field in (
             'run_id', 'status', 'mode', 'settings', 'started_at_wall', 'deadline_at_wall',
@@ -54,22 +62,28 @@ def run_view(session, run):
         inflight_attempt_ids=list(session.scalars(select(AutopilotAttempt.attempt_id).where(
             AutopilotAttempt.run_id == run.run_id, AutopilotAttempt.status.in_(INFLIGHT),
         ))),
-        submissions_enabled=run.mode == 'live' and run.status == 'running' and live_enabled(),
+        submissions_enabled=fixed_enabled or bids_enabled,
+        model_decision_mode=run.mode, model_live_submission_supported=True,
+        model_live_auth_configured=auth_configured,
+        open_bid_submissions_enabled=bids_enabled, fixed_rate_submissions_enabled=fixed_enabled,
+        **collection_view(session, run),
     )
 
 
 def start_run(engine, request):
+    if request.mode != 'live':
+        raise ProductError(422, 'Autopilot runs are live-only; use allocation preview for read-only analysis')
     settings = AutopilotSettings.model_validate(request.model_dump(exclude={'run_id', 'mode'}))
     try:
         with transaction(engine) as session:
             existing = session.get(AutopilotRun, request.run_id)
             if existing:
-                if existing.settings != settings.model_dump(mode='json') or existing.mode != request.mode:
+                if AutopilotSettings.model_validate(existing.settings) != settings or existing.mode != request.mode:
                     raise ProductError(409, 'This run_id already has different settings')
                 check_run_limits(session, existing)
                 return run_view(session, existing)
             if request.mode == 'live' and not live_enabled():
-                raise ProductError(409, 'Live autopilot is disabled; validate shadow runs before enabling AUTOPILOT_LIVE_ENABLED')
+                raise ProductError(409, 'Live autopilot is disabled; set AUTOPILOT_LIVE_ENABLED=true to allow execution')
             if session.scalar(select(AutopilotRun).where(AutopilotRun.status == 'running')):
                 raise ProductError(409, 'An autopilot run is already active; stop it before starting another')
             if request.mode == 'live' and session.scalar(select(AutopilotAttempt.attempt_id).join(
@@ -197,18 +211,24 @@ def candidate_snapshot(engine, attempt_id, bid_rate=None, unit_id=None):
         shipment = session.get(Shipment, attempt.shipment_id)
         checked = evaluate_dispatch(session, shipment, bid_rate, unit_id)
         features = None
+        lane = None
         if shipment.order_type == 'open_bid':
-            fields = {name: getattr(shipment, name) for name in (
-                'distance_miles', 'weight_lbs', 'origin_latitude', 'origin_longitude',
-                'destination_latitude', 'destination_longitude', 'origin_state', 'destination_state',
-            )}
-            for name in ('distance_miles', 'weight_lbs', 'origin_latitude', 'origin_longitude', 'destination_latitude', 'destination_longitude'):
-                fields[name] = float(fields[name]) if fields[name] is not None else None
-            fields['lane_id'] = (f'{shipment.origin_terminal_code}-{shipment.destination_terminal_code}'
-                                 if shipment.origin_terminal_code and shipment.destination_terminal_code else None)
-            features = ModelShipmentFeatures(**fields).model_dump(mode='json')
+            features, lane = model_shipment_features(session, shipment)
         reasons = candidate_rejections(session, run, shipment, checked, bid_rate)
-        return checked, reasons, features, AutopilotSettings.model_validate(run.settings)
+        return checked, reasons, features, AutopilotSettings.model_validate(run.settings), lane
+
+
+def decision_snapshot(engine, attempt_id):
+    from service.fleet_allocation import fingerprint
+    from service.model_autopilot import prepare_decision
+    with Session(engine) as session:
+        session.execute(text('BEGIN'))
+        attempt = session.get(AutopilotAttempt, attempt_id)
+        run = session.get(AutopilotRun, attempt.run_id)
+        shipment = session.get(Shipment, attempt.shipment_id)
+        checked = evaluate_dispatch(session, shipment)
+        return checked, prepare_decision(session, shipment, checked,
+            AutopilotSettings.model_validate(run.settings), fingerprint(session), run=run)
 
 
 def store_decision(engine, attempt_id, checked, reasons, *, model=None, bid_rate=None, review=False):
@@ -261,20 +281,13 @@ def finish_attempt(engine, attempt_id, error=None):
         check_run_limits(session, run)
 
 
-def shadow_action(engine, attempt_id):
-    with transaction(engine) as session:
-        attempt = session.get(AutopilotAttempt, attempt_id)
-        run = session.get(AutopilotRun, attempt.run_id)
-        config = AutopilotSettings.model_validate(run.settings)
-        if check_run_limits(session, run) or attempt.status != 'ready' or run.orders_reserved >= config.max_orders:
-            attempt.status, attempt.finished_at_wall = 'cancelled', wall_now()
-            return
-        attempt.status, attempt.finished_at_wall = 'shadow', wall_now()
-        run.orders_reserved += 1
-        check_run_limits(session, run)
-
-
 async def process_one(engine):
+    with Session(engine) as session:
+        run = session.scalar(select(AutopilotRun).where(AutopilotRun.status == 'running'))
+        batch = run is not None and AutopilotSettings.model_validate(run.settings).allocation_enabled
+    if batch:
+        from service.allocation_dispatch import process_allocation
+        return await process_allocation(engine)
     claimed = await asyncio.to_thread(claim_order, engine)
     if claimed is None:
         return False
@@ -282,7 +295,7 @@ async def process_one(engine):
     checked, model = None, {}
     try:
         async with asyncio.timeout(max(.001, (deadline - wall_now()).total_seconds())):
-            checked, reasons, features, config = await asyncio.to_thread(candidate_snapshot, engine, attempt_id)
+            checked, reasons, features, config, lane = await asyncio.to_thread(candidate_snapshot, engine, attempt_id)
             bid = None
             if features is not None:
                 operational = [code for code in checked.rejection_reasons
@@ -291,43 +304,34 @@ async def process_one(engine):
                 if operational or checked.economics.total_cost is None:
                     reasons = operational or ['cash_economics_unknown']
                 else:
-                    url, timeout, _ = analysis_settings()
-                    async with asyncio.timeout(timeout), make_model_client(url, timeout) as client:
-                        response = await client.post('api/v1/predict-bid', json=features)
-                    response.raise_for_status()
-                    data = response.json()
-                    json.dumps(data, allow_nan=False)
-                    model = {'request': features, 'response': data,
-                             'prediction_id': response.headers.get('X-Prediction-Id')}
-                    advice = ModelPriceAdvice.model_validate(data)
-                    if advice.pricing_source == 'baseline' and not config.allow_baseline:
-                        reasons = ['baseline_not_enabled']
-                    else:
-                        bid = Decimal(str(advice.predicted_bid_dollars)).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
-                        if bid <= 0:
-                            raise ValueError('Model price rounded to zero')
-                        checked, reasons, _, _ = await asyncio.to_thread(
+                    from service.model_autopilot import decision_rejections, evaluate_model, matches_evaluation
+                    checked, prepared = await asyncio.to_thread(decision_snapshot, engine, attempt_id)
+                    model, bid = await evaluate_model(prepared)
+                    reasons = decision_rejections(model)
+                    if bid is not None and not reasons:
+                        checked, reasons, _, _, _ = await asyncio.to_thread(
                             candidate_snapshot, engine, attempt_id, bid, checked.candidate_unit_id,
                         )
                         reasons = [*checked.rejection_reasons, *reasons]
+                        if not matches_evaluation(model, checked):
+                            reasons.append('MODEL_CONTEXT_CHANGED')
             else:
                 reasons = [*checked.rejection_reasons, *reasons]
             ready = await asyncio.to_thread(store_decision, engine, attempt_id, checked, reasons,
                                            model=model, bid_rate=bid,
-                                           review=any('unknown' in code or 'stale' in code or 'baseline' in code for code in reasons))
+                                           review=model.get('decision') == 'REVIEW'
+                                           or any(code in reasons for code in ('MODEL_SHADOW_ONLY', 'MODEL_LIVE_NOT_ELIGIBLE'))
+                                           or any('unknown' in code or 'stale' in code or 'baseline' in code for code in reasons))
             if not ready:
                 return True
             with Session(engine) as session:
                 attempt = session.get(AutopilotAttempt, attempt_id)
                 run = session.get(AutopilotRun, run_id)
-                mode, external_id, kind = run.mode, attempt.external_id, attempt.order_type
-            if mode == 'shadow':
-                await asyncio.to_thread(shadow_action, engine, attempt_id)
-            else:
-                request = BidRequest(bid_rate=bid, carrier_note=f'autopilot:{run_id}') if kind == 'open_bid' else ActionRequest(carrier_note=f'autopilot:{run_id}')
-                await execute_action(engine, external_id, 'bid' if kind == 'open_bid' else 'accept', request,
-                                     autopilot_attempt_id=attempt_id)
-                await asyncio.to_thread(finish_attempt, engine, attempt_id)
+                external_id, kind = attempt.external_id, attempt.order_type
+            request = BidRequest(bid_rate=bid, carrier_note=f'autopilot:{run_id}') if kind == 'open_bid' else ActionRequest(carrier_note=f'autopilot:{run_id}')
+            await execute_action(engine, external_id, 'bid' if kind == 'open_bid' else 'accept', request,
+                                 autopilot_attempt_id=attempt_id)
+            await asyncio.to_thread(finish_attempt, engine, attempt_id)
     except asyncio.CancelledError:
         await asyncio.shield(asyncio.to_thread(recover_runs, engine, 'backend_shutdown'))
         raise

@@ -7,6 +7,7 @@ from schema.assignment import ACTIVE_ASSIGNMENT_STATUSES, Assignment
 from schema.assignment_reservation import AssignmentReservation
 from schema.dispatch_action import DispatchAction
 from schema.scheduling import ReservationConflict, ScheduleConflict
+from schema.allocation_plan import AllocationReservation
 from service.expiration import utc
 
 BOOKABLE_UNIT_STATUSES = ('available', 'assigned', 'in_transit')
@@ -76,4 +77,11 @@ def reservation_conflicts(session: Session, unit_ids, pickup_at: datetime, deliv
             action_id=reservation.action_id, busy_from=utc(reservation.busy_from),
             busy_until=utc(reservation.busy_until), request_status=status,
         ))
+    from service.allocation_holds import current_holds
+    for hold in current_holds(session):
+        if hold.unit_id in conflicts and utc(hold.busy_from) < utc(delivery_at) and utc(hold.busy_until) > utc(pickup_at):
+            conflicts[hold.unit_id].append(ReservationConflict(
+                action_id=hold.action_id, allocation_reservation_id=hold.reservation_id if isinstance(hold, AllocationReservation) else None,
+                busy_from=utc(hold.busy_from), busy_until=utc(hold.busy_until), request_status=hold.status,
+            ))
     return conflicts

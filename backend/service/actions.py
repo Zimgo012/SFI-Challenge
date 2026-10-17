@@ -58,6 +58,12 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
             # Acquire the database write lock before reading schedules. Commit
             # the reservation before HTTP; no database lock spans network I/O.
             session.execute(text('BEGIN IMMEDIATE'))
+            from service.allocation_holds import reap_plans
+            reap_plans(session)
+            if autopilot_attempt_id is not None:
+                from schema.autopilot_attempt import AutopilotAttempt
+                attempt = session.get(AutopilotAttempt, autopilot_attempt_id)
+                session.info['allocation_plan_id'] = attempt.allocation_plan_id if attempt else None
             shipment = session.scalar(select(Shipment).where(Shipment.external_id == external_id))
             if shipment is None:
                 raise ProductError(404, 'Order not found')
@@ -108,6 +114,9 @@ def begin_action(engine: Engine, external_id: str, kind: str, request: ActionReq
                         created_at=datetime.now(timezone.utc),
                     ))
                     session.flush()
+                if autopilot_attempt_id is not None:
+                    from service.autopilot_guards import record_authorized_snapshot
+                    record_authorized_snapshot(session, autopilot_attempt_id)
                 add_activity(session, 'action.requested', f'{kind} requested',
                              shipment_id=shipment.shipment_id, action_id=action.action_id)
                 action_id = action.action_id

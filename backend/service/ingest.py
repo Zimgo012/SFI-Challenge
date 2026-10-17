@@ -51,11 +51,15 @@ def upsert_orders(
     terminals_by_code = {
         row.code.upper(): row.terminal_id for row in session.scalars(select(Terminal))
     }
+    observed_orders = []
     for order in orders:
         previous = session.scalar(select(Shipment).where(Shipment.external_id == order.external_id))
         if previous is not None and previous.board_retired_at is not None:
             continue  # Late HTTP/WS payloads cannot resurrect a wiped generation.
         previous_status = previous.status if previous else None
+        if previous_status != order.status:
+            from service.allocation_holds import cancel_plans
+            cancel_plans(session, 'order_arrived_or_lifecycle_changed')
         values = order.model_dump(
             exclude={'id', 'created_at', 'assigned_driver_id'}, exclude_unset=True,
         )
@@ -74,12 +78,16 @@ def upsert_orders(
                 values[f'{side}_terminal_id'] = terminals_by_code.get((code or '').upper())
         upsert(session, Shipment, 'external_id', values, insert_only=created_only)
         current = session.scalar(select(Shipment).where(Shipment.external_id == order.external_id).execution_options(populate_existing=True))
+        observed_orders.append(current)
         if previous_status is None or previous_status != current.status:
             add_activity(
                 session, 'order.ingested' if previous_status is None else 'order.status_changed',
                 f'Order {current.external_id}: {current.status}', shipment_id=current.shipment_id,
                 details={'previous_status': previous_status, 'status': current.status, 'source': 'board'},
             )
+    if observed_orders:
+        from service.order_collection import observe_orders
+        observe_orders(session, observed_orders)
 
 
 def persist_orders(
@@ -126,6 +134,8 @@ def persist_snapshot(
         if stored_clock is not None and clock.wall_time_utc < stored_clock.wall_time_utc.replace(tzinfo=timezone.utc):
             return  # A slower worker cannot restore an older board snapshot.
         retire_reset_state(session, clock, orders, missing_order_ids, synced_at)
+        from service.allocation_holds import cancel_plans
+        cancel_plans(session, 'fleet_or_clock_refreshed')
         for terminal in [*terminals, *(snapshot.terminal for snapshot in fleet)]:
             values = terminal.model_dump(exclude={'id', 'unit_capacity'})
             values.update(

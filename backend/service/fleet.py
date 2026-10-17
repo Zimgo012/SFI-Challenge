@@ -58,6 +58,9 @@ def reconcile_fleet(
     busy_units.update(session.scalars(select(AssignmentReservation.unit_id).where(
         AssignmentReservation.busy_from <= sim_time, AssignmentReservation.busy_until > sim_time,
     )))
+    from service.allocation_holds import current_holds
+    busy_units.update(hold.unit_id for hold in current_holds(session)
+                      if utc(hold.busy_from) <= utc(sim_time) < utc(hold.busy_until))
     terminals = session.scalars(select(Terminal).order_by(Terminal.code)).all()
     units = session.scalars(select(FleetUnit).execution_options(populate_existing=True)).all()
     board = {snapshot.terminal.id: snapshot for snapshot in snapshots}
