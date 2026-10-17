@@ -1,24 +1,24 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from controller.health_controller import router as health_router
-from controller.order_controller import router as order_router
-from controller.activity_controller import router as activity_router
-from controller.bid_controller import router as bid_router
-from controller.fleet_controller import legacy_router as legacy_fleet_router
-from controller.fleet_controller import router as fleet_router
-from controller.load_controller import router as load_router
-from controller.overview_controller import router as overview_router
-from controller.price_analysis_controller import router as price_analysis_router
-from controller.autopilot_controller import router as autopilot_router
-from controller.analytics_controller import router as analytics_router
-from controller.live_audit_controller import router as live_audit_router
-from controller.monitoring_controller import router as monitoring_router
-from controller.allocation_controller import router as allocation_router
-from controller.shipment_controller import router as shipment_router
-from controller.system_controller import router as system_router
-from controller.terminal_controller import router as terminal_router
-from service.errors import ProductError
+from controller.system.health_controller import router as health_router
+from controller.orders.order_controller import router as order_router
+from controller.audit.activity_controller import router as activity_router
+from controller.orders.bid_controller import router as bid_router
+from controller.fleet.fleet_controller import legacy_router as legacy_fleet_router
+from controller.fleet.fleet_controller import router as fleet_router
+from controller.orders.load_controller import router as load_router
+from controller.analytics.overview_controller import router as overview_router
+from controller.pricing.price_analysis_controller import router as price_analysis_router
+from controller.autopilot.autopilot_controller import router as autopilot_router
+from controller.analytics.analytics_controller import router as analytics_router
+from controller.audit.live_audit_controller import router as live_audit_router
+from controller.audit.monitoring_controller import router as monitoring_router
+from controller.allocation.allocation_controller import router as allocation_router
+from controller.orders.shipment_controller import router as shipment_router
+from controller.system.system_controller import router as system_router
+from controller.terminal.terminal_controller import router as terminal_router
+from service.shared.errors import ProductError
 from startup import lifespan
 
 app = FastAPI(title='SFI Challenge API', version='0.1.0', lifespan=lifespan)

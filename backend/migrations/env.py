@@ -1,7 +1,7 @@
 from alembic import context
 
-from schema.dispatcher import Base
-from service.database import create_database_engine, get_database_url
+from schema.shared.dispatcher import Base
+from service.shared.database import create_database_engine, get_database_url
 
 config = context.config
 target_metadata = Base.metadata

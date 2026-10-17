@@ -8,15 +8,15 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI
 
-from service.ingest import ingest as call_external_api
-from service.order_stream import consume_orders
-from service.expiration import monitor_expirations
-from service.system_state import connection_state
-from service.periodic_sync import periodic_sync, sync_settings
-from service.history_import import sync_history_if_changed
-from service.autopilot import autopilot_worker, recover_runs
-from service.database import get_engine
-from service.simulation_clock_sync import sync_simulation_clock, clock_sync_interval
+from service.ingestion.ingest import ingest as call_external_api
+from service.ingestion.order_stream import consume_orders
+from service.orders.expiration import monitor_expirations
+from service.system.system_state import connection_state
+from service.ingestion.periodic_sync import periodic_sync, sync_settings
+from service.ingestion.history_import import sync_history_if_changed
+from service.autopilot.autopilot import autopilot_worker, recover_runs
+from service.shared.database import get_engine
+from service.simulation.simulation_clock_sync import sync_simulation_clock, clock_sync_interval
 
 logger = logging.getLogger(__name__)
 ENV_FILE = Path(__file__).resolve().parent / '.env'
