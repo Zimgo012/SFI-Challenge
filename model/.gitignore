@@ -13,6 +13,14 @@ __pycache__/
 
 # Local datasets and generated model outputs
 /data/
-/artifacts/
+# Keep the small, frozen serving bundle in the repo for one-command Docker runs.
+# Generated datasets, research outputs and other model versions stay ignored.
+/artifacts/*
+!/artifacts/models/
+/artifacts/models/*
+!/artifacts/models/freight-rpm-v1/
+!/artifacts/baselines/
+/artifacts/baselines/*
+!/artifacts/baselines/historical-range-v1.json
 /runs/
 /requirements/

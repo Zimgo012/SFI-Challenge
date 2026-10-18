@@ -242,3 +242,23 @@ np.save(sys.argv[3], values)
         self.write_manifest()
         with self.assertRaisesRegex(ValueError, "missing required"):
             load_model_bundle(self.path)
+
+    def test_same_torch_release_loads_across_platform_builds(self):
+        release = str(torch.__version__).partition("+")[0]
+        for saved, installed in ((release, release + "+cu130"),
+                                 (release + "+cu130", release + "+cpu")):
+            with self.subTest(saved=saved, installed=installed):
+                self.manifest["runtime_versions"]["torch"] = saved
+                self.write_manifest()
+                with patch("torch.__version__", installed):
+                    loaded = load_model_bundle(self.path)
+                np.testing.assert_array_equal(self.predict(loaded, self.records), self.expected)
+
+    def test_platform_build_compatibility_keeps_dependency_release_checks(self):
+        original = copy.deepcopy(self.manifest["runtime_versions"])
+        for dependency in ("torch", "numpy", "pandas", "scikit_learn", "python"):
+            with self.subTest(dependency=dependency):
+                self.manifest["runtime_versions"] = {**original, dependency: "0.0.0+cpu"}
+                self.write_manifest()
+                with self.assertRaisesRegex(ValueError, "versions"):
+                    load_model_bundle(self.path)

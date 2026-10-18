@@ -5,6 +5,12 @@ x-python: &python
   # Model/migrations reuse the dispatcher build, including on a fresh machine.
   pull_policy: never
 
+# Default settings work without a local .env; local settings override the example.
+x-service-env: &service-env
+  - path: .env.example
+  - path: ${SFI_ENV_FILE:-.env}
+    required: false
+
 x-health: &health
   interval: 10s
   timeout: 30s
@@ -17,7 +23,7 @@ services:
     build:
       context: .
       dockerfile: docker/simulator.Dockerfile
-    env_file: ${SFI_ENV_FILE:-.env.docker.example}
+    env_file: *service-env
     environment:
       DATABASE_URL: sqlite:////var/lib/sfi/freight_challenge.db
     volumes:
@@ -33,7 +39,7 @@ services:
 
   model:
     <<: *python
-    env_file: ${SFI_ENV_FILE:-.env.docker.example}
+    env_file: *service-env
     working_dir: /app/model
     environment:
       SFI_MODEL_BUNDLE: /artifacts/models/${MODEL_BUNDLE_NAME:-freight-rpm-v1}
@@ -57,7 +63,7 @@ services:
 
   migrate:
     <<: *python
-    env_file: ${SFI_ENV_FILE:-.env.docker.example}
+    env_file: *service-env
     environment:
       DISPATCHER_DATABASE_URL: sqlite:////var/lib/sfi/dispatcher.db
     command: [python, -m, alembic, upgrade, head]
@@ -70,7 +76,7 @@ services:
     build:
       context: .
       dockerfile: docker/python.Dockerfile
-    env_file: ${SFI_ENV_FILE:-.env.docker.example}
+    env_file: *service-env
     environment:
       DISPATCHER_DATABASE_URL: sqlite:////var/lib/sfi/dispatcher.db
       EXTERNAL_API_URL: http://simulator:8087
@@ -82,7 +88,7 @@ services:
         target: /history
         read_only: true
         bind:
-          create_host_path: false
+          create_host_path: true
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${BACKEND_PORT:-8000}:8000"
     depends_on:

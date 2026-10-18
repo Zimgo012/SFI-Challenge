@@ -1,7 +1,6 @@
 requirements/
-.env
-.env.docker
-.env.docker.local
+/.env*
+!/.env.example
 
 project-frontend/
 project-model/
