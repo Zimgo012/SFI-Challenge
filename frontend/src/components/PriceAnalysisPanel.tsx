@@ -16,6 +16,12 @@ type Props = {
 type AnalysisState = { key: string; error?: string }
 type AnalysisSnapshot = { key: string; contextKey: string; result: PriceAnalysisResult }
 
+const hiddenWarnings = new Set([
+  'Model is advisory; release gates remain unverified.',
+  'Held-out lane evidence is insufficient for verification.',
+  'Value is far from the training mean; this diagnostic is not a calibrated probability or range guarantee.',
+])
+
 export default function PriceAnalysisPanel({ load, bid, unitId = null, fixedPreview, fixedLoading, fixedError, onRefreshFixed }: Props) {
   const [state, setState] = useState<AnalysisState | null>(null)
   const [snapshot, setSnapshot] = useState<AnalysisSnapshot | null>(null)
@@ -75,7 +81,7 @@ export default function PriceAnalysisPanel({ load, bid, unitId = null, fixedPrev
   const warnings = [...new Set([
     ...(result?.warnings ?? []), ...(result?.model_response?.warnings ?? []).map((warning) => warning.message),
     ...(advice?.warnings ?? []).map((warning) => warning.message),
-  ])]
+  ])].filter(warning => !hiddenWarnings.has(warning.trim()))
 
   return <section aria-label="Price analysis" className="space-y-3" aria-busy={loading}>
     <div>
