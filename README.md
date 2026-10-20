@@ -5,7 +5,7 @@
 Install and start Docker with Compose v2.24+, then switch to the shipping branch:
 
 ```sh
-git checkout feature/ship
+git checkout feature/ship-3
 ./start.sh
 ```
 
