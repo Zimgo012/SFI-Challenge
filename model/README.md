@@ -37,13 +37,17 @@ when serving an existing bundle.
 
 ```sh
 uv sync --locked --extra api --python 3.13
-uv run --locked --extra api uvicorn sfi_model.api.app:app --host 127.0.0.1 --port 9000 --workers 1
+.venv/bin/python -m uvicorn sfi_model.api.app:app --host 127.0.0.1 --port 9000 --workers 1 --env-file ../backend/.env
 ```
 
 API docs: **http://127.0.0.1:9000/docs**. Stop with `Ctrl+C`.
 Set the backend's `MODEL_API_URL=http://127.0.0.1:9000` to connect it.
-The model reads exported environment variables; it does not automatically load
-`.env`. If you maintain one, append `--env-file .env` to the Uvicorn command.
+The command loads the backend's `.env` so live settings and authentication agree.
+Prepare that file as described in [backend/README.md](../backend/README.md).
+When launching from another directory, use `--env-file "/absolute/path/to/backend/.env"`.
+For an independent model configuration, use `--env-file /absolute/path/to/model/.env`
+and keep its live token and flags consistent with the backend. Exported variables
+take precedence over values in the file.
 Use `SFI_MODEL_BUNDLE` and `SFI_HISTORICAL_RANGE_ARTIFACT` for alternate artifact paths.
 
 | Endpoint | Purpose |
