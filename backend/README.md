@@ -53,7 +53,7 @@ AUTOPILOT_KILL_SWITCH=true
 ```sh
 uv sync --locked --python 3.13
 uv run --locked alembic upgrade head
-uv run --locked uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1
+uv run --locked uvicorn main:app --host 127.0.0.1 --port 8000 --workers 1 --env-file .env
 ```
 
 API docs: **http://127.0.0.1:8000/docs**. Stop with `Ctrl+C`.
@@ -61,6 +61,9 @@ Keep one worker: the serving process also runs ingestion and autopilot workers.
 The default database is `data/dispatcher.db`; set `DISPATCHER_DATABASE_URL`
 to override it. An empty history path disables optional CSV import.
 Starting the service does not start an autopilot run.
+Start the separate model with `--env-file /absolute/path/to/backend/.env` too,
+so both processes use matching live settings and tokens. Keep
+`SFI_AUTOPILOT_CLOCK_MODE=either` for the backend's wall-normalized requests.
 
 ## Useful commands
 
