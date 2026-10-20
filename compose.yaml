@@ -26,6 +26,7 @@ services:
     env_file: *service-env
     environment:
       DATABASE_URL: sqlite:////var/lib/sfi/freight_challenge.db
+      SFI_SERVICE_ENV_FILE: /app/simulator/.env
     volumes:
       - simulator-db:/var/lib/sfi
       - simulator-history:/app/simulator/data
@@ -46,7 +47,8 @@ services:
       SFI_HISTORICAL_RANGE_ARTIFACT: /artifacts/baselines/${MODEL_RANGE_NAME:-historical-range-v1.json}
       MODEL_EXPECTED_VERSION: ${MODEL_EXPECTED_VERSION:-freight-rpm-v1}
       SFI_AUTOPILOT_TOKEN_FILE: /run/sfi-auth/autopilot-token
-    command: [python, -m, uvicorn, 'sfi_model.api.app:app', --host, 0.0.0.0, --port, '9000', --workers, '1']
+      SFI_SERVICE_ENV_FILE: /app/backend/.env
+    command: [.venv/bin/python, -m, uvicorn, 'sfi_model.api.app:app', --host, 0.0.0.0, --port, '9000', --workers, '1', --env-file, /app/backend/.env]
     volumes:
       - &model-artifacts
         type: bind
@@ -69,7 +71,8 @@ services:
     env_file: *service-env
     environment:
       DISPATCHER_DATABASE_URL: sqlite:////var/lib/sfi/dispatcher.db
-    command: [python, -m, alembic, upgrade, head]
+      SFI_SERVICE_ENV_FILE: /app/backend/.env
+    command: [.venv/bin/python, -m, alembic, upgrade, head]
     volumes:
       - dispatcher-db:/var/lib/sfi
     restart: 'no'
@@ -86,6 +89,7 @@ services:
       MODEL_API_URL: http://model:9000
       MODEL_MONITORING_BUNDLE: /artifacts/models/${MODEL_BUNDLE_NAME:-freight-rpm-v1}
       SFI_AUTOPILOT_TOKEN_FILE: /run/sfi-auth/autopilot-token
+      SFI_SERVICE_ENV_FILE: /app/backend/.env
     volumes:
       - dispatcher-db:/var/lib/sfi
       - simulator-history:/board-history:ro

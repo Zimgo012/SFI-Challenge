@@ -176,7 +176,7 @@ the cash-margin checks required for booking.
 | `MODEL_AUTOPILOT_LIVE_TOKEN` | Empty (automatic) | Backend service token. Leave empty for automatic Docker provisioning; custom tokens must have at least 32 ASCII characters without whitespace. |
 | `SFI_AUTOPILOT_LIVE_TOKEN` | Empty (automatic) | Model service token. Leave empty for automatic provisioning; when setting both tokens manually, their values must match. |
 | `SFI_AUTOPILOT_ORDER_TYPES` | `open_bid,fixed_rate` | Comma-separated enabled order types: `open_bid`, `fixed_rate`, or both. |
-| `SFI_AUTOPILOT_CLOCK_MODE` | `simulation` | `simulation` requires simulation clock metadata; `wall` expects no simulation clock; `either` accepts either contract. |
+| `SFI_AUTOPILOT_CLOCK_MODE` | `either` | Accepts the backend's wall-normalized deadlines and requests with explicit simulation clock metadata. `simulation` requires that metadata; `wall` expects none. |
 
 Autopilot starts only when you click **Run** or call its start API. Both enable
 flags must be true and both kill switches false. Normal profitability, freshness,

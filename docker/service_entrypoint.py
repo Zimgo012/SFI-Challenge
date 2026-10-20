@@ -1,7 +1,9 @@
 """Provision shared service authentication, then replace this process with Uvicorn."""
 
+import json
 import os
 from pathlib import Path
+import re
 import secrets
 import sys
 import tempfile
@@ -43,9 +45,29 @@ def configure_auth(environment):
     environment["SFI_AUTOPILOT_LIVE_TOKEN"] = token
 
 
+def write_service_env(environment):
+    """Persist this process's resolved configuration for dotenv-aware services."""
+    configured_path = environment.get("SFI_SERVICE_ENV_FILE")
+    if not configured_path:
+        return
+    path = Path(configured_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix=".service-env-")
+    try:
+        with os.fdopen(descriptor, "w") as stream:
+            for key, value in sorted(environment.items()):
+                if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+                    stream.write(f"{key}={json.dumps(value, ensure_ascii=False)}\n")
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 if __name__ == "__main__":
     try:
         configure_auth(os.environ)
+        write_service_env(os.environ)
         if len(sys.argv) < 2:
             raise ValueError("A service command is required")
     except (ValueError, OSError) as error:

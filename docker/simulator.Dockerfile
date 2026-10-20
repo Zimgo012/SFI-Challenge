@@ -6,6 +6,8 @@ COPY sfi_challenge/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY sfi_challenge/app ./app
 COPY docker/healthcheck.py /app/docker/healthcheck.py
+COPY docker/service_entrypoint.py /app/docker/service_entrypoint.py
 RUN mkdir -p /app/simulator/data /var/lib/sfi
 EXPOSE 8087
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8087", "--workers", "1"]
+ENTRYPOINT ["python", "/app/docker/service_entrypoint.py"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8087", "--workers", "1", "--env-file", "/app/simulator/.env"]

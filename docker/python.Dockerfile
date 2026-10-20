@@ -16,9 +16,11 @@ COPY backend/pyproject.toml backend/uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-install-package sfi-model
 COPY model/sfi_model /app/model/sfi_model
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev
+# Expose the same locked runtime at the model's conventional local venv path.
+RUN ln -s /app/backend/.venv /app/model/.venv
 COPY backend/ ./
 COPY docker/healthcheck.py /app/docker/healthcheck.py
 COPY docker/service_entrypoint.py /app/docker/service_entrypoint.py
 EXPOSE 8000 9000
-ENTRYPOINT ["python", "/app/docker/service_entrypoint.py"]
-CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+ENTRYPOINT ["/app/backend/.venv/bin/python", "/app/docker/service_entrypoint.py"]
+CMD [".venv/bin/python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--env-file", "/app/backend/.env"]

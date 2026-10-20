@@ -59,6 +59,37 @@ the `project-model/` worktree is excluded from Docker builds. The backend's
 editable dependency also points to `../model`, so local and Docker runs use
 the same source.
 
+The model runs through Uvicorn with an explicit virtual-environment interpreter:
+
+```sh
+.venv/bin/python -m uvicorn sfi_model.api.app:app --host 0.0.0.0 --port 9000 --workers 1 --env-file /app/backend/.env
+```
+
+Inside the image, `model/.venv` points to the shared locked Python environment.
+Before launching, the entrypoint writes the resolved settings and shared token
+to `/app/backend/.env` in both backend and model containers. Both services load
+that absolute path, so working-directory changes cannot select another file.
+The migration job writes/reads the backend configuration too; the simulator
+loads its own resolved configuration at `/app/simulator/.env`. These files are
+generated inside containers with owner-only permissions; host env files are
+not copied into images. Frontend proxies keep the matching internal service URLs.
+
+For an independent local model process, use its installed Python environment and
+the absolute path to the backend configuration:
+
+```sh
+python -m uvicorn sfi_model.api.app:app --host 127.0.0.1 --port 9000 --workers 1 --env-file "/absolute/path/to/backend/.env"
+```
+
+Use `127.0.0.1` for local processes and `0.0.0.0` inside Docker so other
+containers can reach the service. Exported environment values take precedence
+over the env file; remove stale overrides if they select a different instance.
+
+Keep `SFI_AUTOPILOT_CLOCK_MODE=either` for this stack. The backend converts
+simulation deadlines to wall UTC for model requests; forcing `simulation`
+rejects those requests with `LIVE_CLOCK_MODE_MISMATCH`. If your existing `.env`
+sets `simulation`, change it to `either` before restarting the stack.
+
 With the default ports, open **http://localhost:9000/docs** or
 **http://localhost:9000/openapi.json**. Model endpoints include:
 
