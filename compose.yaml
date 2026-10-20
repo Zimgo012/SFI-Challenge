@@ -45,14 +45,17 @@ services:
       SFI_MODEL_BUNDLE: /artifacts/models/${MODEL_BUNDLE_NAME:-freight-rpm-v1}
       SFI_HISTORICAL_RANGE_ARTIFACT: /artifacts/baselines/${MODEL_RANGE_NAME:-historical-range-v1.json}
       MODEL_EXPECTED_VERSION: ${MODEL_EXPECTED_VERSION:-freight-rpm-v1}
+      SFI_AUTOPILOT_TOKEN_FILE: /run/sfi-auth/autopilot-token
     command: [python, -m, uvicorn, 'sfi_model.api.app:app', --host, 0.0.0.0, --port, '9000', --workers, '1']
     volumes:
-      - type: bind
+      - &model-artifacts
+        type: bind
         source: ${MODEL_ARTIFACTS_DIR:-./model/artifacts}
         target: /artifacts
         read_only: true
         bind:
           create_host_path: false
+      - service-auth:/run/sfi-auth
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${MODEL_PORT:-9000}:9000"
     healthcheck:
@@ -81,8 +84,13 @@ services:
       DISPATCHER_DATABASE_URL: sqlite:////var/lib/sfi/dispatcher.db
       EXTERNAL_API_URL: http://simulator:8087
       MODEL_API_URL: http://model:9000
+      MODEL_MONITORING_BUNDLE: /artifacts/models/${MODEL_BUNDLE_NAME:-freight-rpm-v1}
+      SFI_AUTOPILOT_TOKEN_FILE: /run/sfi-auth/autopilot-token
     volumes:
       - dispatcher-db:/var/lib/sfi
+      - simulator-history:/board-history:ro
+      - *model-artifacts
+      - service-auth:/run/sfi-auth
       - type: bind
         source: ${BACKEND_HISTORY_DIR:-./backend/data}
         target: /history
@@ -127,3 +135,4 @@ volumes:
   dispatcher-db:
   simulator-db:
   simulator-history:
+  service-auth:

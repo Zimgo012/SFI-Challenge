@@ -18,5 +18,7 @@ COPY model/sfi_model /app/model/sfi_model
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev
 COPY backend/ ./
 COPY docker/healthcheck.py /app/docker/healthcheck.py
+COPY docker/service_entrypoint.py /app/docker/service_entrypoint.py
 EXPOSE 8000 9000
+ENTRYPOINT ["python", "/app/docker/service_entrypoint.py"]
 CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

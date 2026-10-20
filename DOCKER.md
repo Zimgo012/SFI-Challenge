@@ -43,9 +43,8 @@ the simulator included in this repository instead.
 
 No `.env` file or credentials are required for the demo. Compose loads working
 defaults from the root `.env.example`, seeds the simulator, and applies database
-migrations. It creates an empty history directory if needed; optional historical
-CSV import is disabled by default. Local Python/Node setup and service URLs
-are handled inside Docker.
+migrations. History import uses the simulator-generated CSV by default. Local
+Python/Node setup and service URLs are handled inside Docker.
 
 The simulator seeds a fresh database. Migrations run once as a separate job on
 each Compose launch, before one dispatcher process starts. Existing rows are
@@ -104,13 +103,13 @@ runtime settings. Simulator speed/settings changed in the UI reset on restart.
 | `MODEL_ARTIFACTS_DIR` | Host directory containing model `models/` and `baselines/`, mounted read-only |
 | `MODEL_BUNDLE_NAME`, `MODEL_RANGE_NAME`, `MODEL_EXPECTED_VERSION` | Artifact names and expected prediction version |
 | `BACKEND_HISTORY_DIR` | Host directory mounted read-only as `/history` |
-| `HISTORY_CSV_PATH` | Empty to disable import; otherwise a container path under `/history` |
+| `HISTORY_CSV_PATH` | Defaults to `/board-history/historical_shipments.csv`; empty disables import; custom CSVs use `/history` |
 | `SIMULATION_SPEED`, `ORDER_INTERVAL_SECONDS`, `ORDER_TTL_SIM_MINUTES` | Demo speed, offer arrival interval and offer lifetime |
 | `BOARD_WEBSOCKET_ENABLED`, `BOARD_SYNC_INTERVAL_SECONDS` | Dispatcher synchronization settings |
 
-To import your own historical CSV, put it in `BACKEND_HISTORY_DIR` and set
-`HISTORY_CSV_PATH=/history/historical_shipments.csv`. Leave this empty for the
-self-contained demo.
+History is imported automatically from the simulator. To use your own CSV, put
+it in `BACKEND_HISTORY_DIR` and set `HISTORY_CSV_PATH=/history/historical_shipments.csv`.
+Set the path empty only if you want to disable history import.
 
 The example includes fleet sizing, bidding and model policy options. Any additional
 backend/model environment setting can be added to the same file. Compose fixes
@@ -127,10 +126,19 @@ docker compose --env-file .env.docker.local up --build -d --wait --wait-timeout 
 
 `--env-file` controls Compose substitutions; `SFI_ENV_FILE` selects the settings
 injected into Python containers. Shell variables override Compose substitutions.
-Do not put credentials in frontend `VITE_*` settings. Live autopilot defaults
-to disabled; enable it explicitly with matching backend/model tokens and the
-enable/kill controls documented in `.env.example`. A service launch does
-not start or resume an autopilot run.
+Autopilot, history import, model monitoring, pricing fallback, WebSockets,
+opportunity cost, and positioning estimates are enabled by default. Both
+backend/model autopilot gates are enabled and both kill switches are off.
+Use **Run** in the dashboard to start a run; a service launch does not start or
+resume one. Profitability, freshness, capacity, and authentication checks still apply.
+
+Docker generates a random shared autopilot token once in the `service-auth`
+volume, reuses it across restarts, and supplies it to both services without
+printing it. Leave the token variables empty for automatic setup, or set matching
+custom values with at least 32 characters. Never put tokens in `VITE_*` settings.
+The backend also mounts the model artifacts read-only for monitoring reports.
+Existing `.env` overrides still take precedence; remove old disabling values or
+update them to the defaults in `.env.example`.
 
 The frontend runs the documented Vite demo server to retain local simulator
 Settings controls and WebSocket proxying. Browser requests stay on the frontend
@@ -154,7 +162,7 @@ files and configuration separately; back up/restore the named
 volumes too if you need the existing operational state. The simulator's generated
 history is persisted in its own volume.
 
-For a **fresh demo that discards both databases and simulator history**, stop the
+For a **fresh demo that discards both databases, simulator history, and the generated shared token**, stop the
 stack and back up its volumes first, then explicitly run:
 
 ```sh
